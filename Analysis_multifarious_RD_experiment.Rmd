@@ -1,0 +1,113 @@
+---
+title: "Multifarious response diversity experiments"
+author: "Francesco Polazzo, to be added"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    code_folding: hide
+    keep_md: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r include = FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      include = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE)
+```
+
+```{r results='hide'}
+rm(list = ls())
+library(plotly)
+library(tidyverse)
+library(here)
+library(patchwork)
+library(DT)
+library(mgcv)
+library(gratia)
+library(rlang)
+library(vctrs)
+library(scales)
+library(broom)
+library(reshape2)
+library(ggtext)
+library(ggsci)
+library(ggpubr)
+
+theme_set(theme_classic())
+```
+
+
+
+Generate simulated data:
+
+We are going to simulate the same data we collected during the reaction norms experiment. 
+This part of the code is didactical and meant to expalain what we do later with the empirical data.
+
+We are going to calculate carry capacity and growth rate from the simulated data of 6 species grown in 
+a 5x5 full factorial experiment involving nutrients and temperature.
+
+In this code, I've created a simulate_growth function to simulate logistic growth 
+for each combination of temperature, nutrients, and species. The resulting data is 
+then used to fit a GAM model, and carry capacity (K) and growth rate (r) are extracted.
+
+```{r}
+# Simulated data with 6 species, 5 temperature levels, and 5 nutrients levels
+set.seed(123)
+
+# Number of observations per combination
+n <- 3
+
+# Create a data frame with 6 species
+species <- rep(letters[1:6], each = 5 * n)
+
+# Create a data frame with 5 temperature levels and 5 nutrients levels
+temp <- rep(1:5, each = n)
+nutrients <- rep(1:5, times = n)
+
+# Simulate response variable for each species
+response <- rnorm(length(species), mean = 10 + 2 * temp + 3 * nutrients, sd = 5)
+
+# Create a data frame with numeric variables
+data <- data.frame(Species = factor(species),
+                   Temp = rep(temp, times = 6),
+                   Nutrients = rep(nutrients, times = 6),
+                   Response = response)
+```
+
+Fitting a GAM model
+We use the mgcv package to fit a Generalized Additive Model (GAM) with a tensor product smooth for the factorial design.
+```{r}
+# Fit GAM with tensor product for the factorial design
+gam_model <- gam(Response ~ te(Temp, Nutrients, by = Species), data = data)
+```
+
+We use the predict function to obtain the fitted values from the GAM model.
+```{r}
+# Use predict to extract the fitted values
+fitted_values <- predict(gam_model, newdata = data)
+```
+
+
+For convenience, we store the result in a tibble
+```{r}
+# Combine fitted values with the original data
+results_tibble <- data %>%
+  bind_cols(fitted_values = fitted_values) %>%
+  mutate(K = exp(fitted_values), r = fitted_values) %>%
+  select(Species, K, r)
+```
+
+Look at results
+```{r}
+# Display the tibble
+print(results_tibble)
+```
+
