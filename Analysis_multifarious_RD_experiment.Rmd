@@ -704,14 +704,14 @@ potential_dissimilarity_plot + potential_divergence_plot
 ```
 
 
-# Response diversity known direction of environmental change
+# Response diversity with known direction of environmental change
 
 Now we calculate RD with known direction of environmental change, i.e. the ones we are going to apply in the experiment. We are going to calculate response diversity for multiple possible ranges of temperature fluctuations.
 - Create a data set with environmental conditions that we may use in the experiment and calculate RD knowing the direction of the environmental change.
 
 - fluctuating temperature x 3 fixed nutrients = 9 treatments
 
-## First env change scenario - changing magnitude of T change
+## Magnitude of T change - 1
 - first fluctuation ranges are going to be 18-22, 22-26, and 24 - 28. Temperature stays at the lower end of the range (i.e. 18C) for 3 days, it increases over 24h and stays at the higher end for 3 days.
 
 
@@ -897,6 +897,7 @@ p2 <- ggplot(env_data, aes(x = time, y = nutrients)) +
 
 p1 / p2
 
+
 ```
 
 
@@ -912,6 +913,7 @@ all_combinations_2species <- combn(c("Colpidium", "Dexiostoma", "Loxocephalus", 
 ```
 
 - Actual RD calculation
+(since temperature and nutrients are the same for 3 days in a row, the magnitude of the unit vector is zero [no direction of environmental change], so we get NAs for divergence. We replace these with zeros)
 ```{r}
 
 # Use lapply to iterate through each pair
@@ -936,19 +938,19 @@ RD_2species <- do.call(rbind, result_list_2species_RD)
 RD_2species <- RD_2species %>%
   mutate(composition = str_split(species, "_") %>% 
            map_chr(~ paste0(substr(.x, 1, 1), collapse = ""))) %>%   mutate(richness = 2)
-# Print the updated final result
 
 
-RD_2species <- RD_2species %>% rename(temperature = E1_ref,
+
+RD_2species_mag_1 <- RD_2species %>% rename(temperature = E1_ref,
                          nutrients = E2_ref) 
 
-
+#RD_2species$divergence <- replace(RD_2species$divergence, is.nan(RD_2species$divergence), 0)
 ```
 
 Results
 ```{r results='asis', message=FALSE, warning=FALSE}
 ## Display the parameter table
-head(RD_2species,
+head(RD_2species_mag_1,
               filter="top")
 ```
 
@@ -956,7 +958,7 @@ head(RD_2species,
 
 
 # Plot boxplots for divergence by composition using different colors from the Viridis palette
-dissimilarity_2sp_plot <- ggplot(RD_2species, aes(x = composition, y = dissimilarity, fill = composition)) +
+dissimilarity_2sp_plot <- ggplot(RD_2species_mag_1, aes(x = composition, y = dissimilarity, fill = composition)) +
   geom_boxplot(alpha = 0.7) +  # Boxplots
   geom_jitter(width = 0.2, alpha = 0.7) +  # Individual points with jitter
   labs(x = "Composition", y = "Dissimilarity") +
@@ -971,7 +973,7 @@ dissimilarity_2sp_plot <- ggplot(RD_2species, aes(x = composition, y = dissimila
     axis.title.x = element_text(size = 20),
     axis.title.y = element_text(size = 20))
 # Plot boxplots for divergence by composition using different colors from the Viridis palette
-divergence_2sp_plot <-  ggplot(RD_2species, aes(x = composition, y = divergence, fill = composition)) +
+divergence_2sp_plot <-  ggplot(RD_2species_mag_1, aes(x = composition, y = divergence, fill = composition)) +
   geom_boxplot(alpha = 0.7) +  # Boxplots
   geom_jitter(width = 0.2, alpha = 0.7) +  # Individual points with jitter
   labs(x = "Composition", y = "Divergence") +
@@ -991,13 +993,15 @@ RD_2sp  <- dissimilarity_2sp_plot + divergence_2sp_plot
 RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
-summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>% 
+summary_RD_2spp <- RD_2species_mag_1 %>% dplyr::group_by(composition) %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
 
 
-
+RD_2species_mag_1 <- RD_2species_mag_1 %>% 
+  filter(dissimilarity == unique(dissimilarity))
+  
 
 ```
 
@@ -1187,10 +1191,10 @@ summary_RD_scen1 %>%
 
 ```
 
-# Second env scenario
+## Magnitude of T change - 2
 
-
-- first fluctuation ranges are going to be 18-21, 22-25, and 25 - 28
+- 3C magnitude
+-  fluctuation ranges are going to be 18-21, 22-25, and 25 - 28
 
 
 ```{r env_scenario2_t2, fig.cap='Time series of the environmental conditions for temperature (a) and nutrients (b). These environmental conditions represent the "treatments" and will be crossed in a full factorial design resulting in 9 unique treatments', fig.align="center", fig.height=8, fig.width=15}
@@ -1420,7 +1424,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -1521,7 +1525,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -1603,7 +1607,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -1709,9 +1713,9 @@ summary_RD_scen2 %>%
 
 
 
-# Third env scenario
+## Magnitude of T change - 3
 
-
+- 2C magnitude 
 - third fluctuation ranges are going to be 18-20, 21-24, and 26 - 28
 
 
@@ -1942,7 +1946,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -2043,7 +2047,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -2125,7 +2129,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -2231,15 +2235,15 @@ summary_RD_scen3 %>%
 
 
 
-# Changing fluctuating frequency 
+## Fluctuation frequency - 1 
 
-Seâme temperature fluctuations as before, but now fluctuating over 4 days
+Same temperature fluctuations as before, but now fluctuating over 4 days
 
 - Create a data set with environmental conditions that we may use in the experiment and calculate RD knowing the direction of the environmental change.
 
 - fluctuating temperature x 3 fixed nutrients = 9 treatments
 
-# First env change scenario
+
 - first fluctuation ranges are going to be 18-22, 22-26, and 24 - 28
 
 
@@ -2470,7 +2474,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -2571,7 +2575,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -2653,7 +2657,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -2757,7 +2761,7 @@ summary_RD_scen1 %>%
 
 ```
 
-# Second env scenario
+## Fluctuation frequency - 2
 
 
 - first fluctuation ranges are going to be 18-21, 22-25, and 25 - 28
@@ -2990,7 +2994,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -3091,7 +3095,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -3173,7 +3177,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -3279,7 +3283,7 @@ summary_RD_scen2 %>%
 
 
 
-# Third env scenario
+## Fluctuation frequency - 3
 
 
 - third fluctuation ranges are going to be 18-20, 21-24, and 26 - 28
@@ -3512,7 +3516,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -3613,7 +3617,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -3695,7 +3699,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -3802,7 +3806,7 @@ summary_RD_scen3 %>%
 
 
 
-# Changing nutrients
+## Changing nutrients - 1
 
 Same temperature fluctuations as before, different nutrient levels
 
@@ -3810,7 +3814,7 @@ Same temperature fluctuations as before, different nutrient levels
 
 - fluctuating temperature x 3 fixed nutrients = 9 treatments
 
-# First env change scenario
+
 - first fluctuation ranges are going to be 18-22, 22-26, and 24 - 28
 
 
@@ -4041,7 +4045,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -4142,7 +4146,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -4224,7 +4228,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -4328,7 +4332,7 @@ summary_RD_scen1 %>%
 
 ```
 
-# Second env scenario
+## Changing nutrients - 2
 
 
 - first fluctuation ranges are going to be 18-21, 22-25, and 25 - 28
@@ -4561,7 +4565,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -4662,7 +4666,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -4744,7 +4748,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -4850,7 +4854,7 @@ summary_RD_scen2 %>%
 
 
 
-# Third env scenario
+## Changing nutrients - 3
 
 
 - third fluctuation ranges are going to be 18-20, 21-24, and 26 - 28
@@ -5083,7 +5087,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -5184,7 +5188,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -5266,7 +5270,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
