@@ -118,6 +118,8 @@ grouped_data_d6 <- dd_d6 %>%
   group_by(species, nutrients, temperature, sample_ID) %>% 
   filter(species != "Spirostomum")
 
+grouped_data_d6 <- grouped_data_d6 %>% filter(!(species %in% c("Colpidium", "Loxocephalus") & temperature == 28))
+
 growth_rates_df <- grouped_data_d6 %>%
   summarise(
     Intercept = coef(lm(log(density + 0.001) ~ day))[1],
@@ -138,11 +140,35 @@ spiro_r_df <- dd %>% filter(species == "Spirostomum") %>%
     .groups = 'drop'
   )
   
-  growth_rates_df <- rbind(growth_rates_df, spiro_r)
+
+
+colp_28 <- dd %>% filter((species %in% "Colpidium" & temperature == 28)) %>% 
+  filter(day <= 3) %>% 
+  group_by(species, nutrients, temperature, sample_ID) 
+  
+colp_28_r <- colp_28 %>% summarise(
+    Intercept = coef(lm(log(density + 0.001) ~ day))[1],
+    GrowthRate = coef(lm(log(density + 0.001) ~ day))[2],
+    RSquared = summary(lm(log(density + 0.001) ~ day))$r.squared,
+    .groups = 'drop'
+  )
+
+
+loxo_28 <- dd %>% filter((species %in% "Loxocephalus" & temperature == 28)) %>% 
+  group_by(species, nutrients, temperature, sample_ID) 
+  
+loxo_28_r <- loxo_28 %>% summarise(
+    Intercept = coef(lm(log(density + 0.001) ~ day))[1],
+    GrowthRate = coef(lm(log(density + 0.001) ~ day))[2],
+    RSquared = summary(lm(log(density + 0.001) ~ day))$r.squared,
+    .groups = 'drop'
+  )
+    
+growth_rates_df <- rbind(growth_rates_df, spiro_r, loxo_28_r, colp_28_r)
 
 # Display the resulting carrying capacity and growth rate data frames
 dd_r_K <- merge(growth_rates_df, carrying_capacity_df, by = c("species", "nutrients", "temperature", "sample_ID"))
-head(growth_rates_df)
+view(dd_r_K)
 ```
 
 
@@ -238,7 +264,7 @@ new_data <- expand_grid(temperature = seq(18, 28, by= 0.02),
 nested_gams <- dd_r_K %>% 
   nest(cols =-species) %>% 
   mutate(
-    gams = map(cols, ~ gam(GrowthRate ~ ti(temperature) + ti(nutrients) + te(temperature, nutrients, k = c(5, 5)),
+    gams = map(cols, ~ gam(GrowthRate ~ te(temperature, nutrients, k = c(5, 5)),
                            data = .x,
                            method = "REML")),
     predicted = map(gams, ~ predict(.x, newdata = new_data))
@@ -292,7 +318,7 @@ for (i in seq_along(nested_gams$gams)) {
                  aes(x = temperature, y = nutrients, z = predicted)) +
     geom_tile(aes(fill = predicted), color = "white") +
     geom_contour(color = "black", linetype = "solid", breaks = seq(-1, 1, by = 0.2)) +
-    scale_fill_viridis_c() +
+    scale_fill_gradientn(colors = RColorBrewer::brewer.pal(11, "Spectral"), limits = c(0, 1)) +
     labs(title = paste("GAM Surface for", species_name),
          fill = "Predicted Growth Rate") +
     theme_bw() +
@@ -327,14 +353,47 @@ surface_tetrahymena <- surface_plots[["Tetrahymena"]]
 ```
 Checking predictions
 ```{r surface_Dexi, fig.cap='Measured density values of Dexiostoma in the different treatments (a) vs fitted surface of growth rate (b).', fig.align="center", fig.height=12, fig.width=25}
-dexiostoma_plot <- dexiostoma_plot + labs(tag = "(a)")
+dexiostoma_plot <- dd_r_K %>% filter(species == "Dexiostoma") %>% 
+  ggplot(aes(x = nutrients, y = GrowthRate, color = as.factor(nutrients))) +
+  geom_point(size = 3.5, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.4)) + 
+  facet_grid(~temperature) +
+  theme_bw() +
+  theme(
+    # Increase facet text size
+    strip.text = element_text(size = 20),
+    # Increase axis text size
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    # Increase axis title size
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  labs(tag = "(a)")
+  
 surface_dexiostoma <- surface_dexiostoma + labs(tag = "(b)")
 dexiostoma_plot + surface_dexiostoma
 ```
 
 
 ```{r surface_colp, fig.cap='Measured density values of Colpidium in the different treatments (a) vs fitted surface of growth rate (b).', fig.align="center", fig.height=12, fig.width=25}
-colpidium_plot <- colpidium_plot + labs(tag = "(a)")
+colpidium_plot <- dd_r_K %>% filter(species == "Colpidium") %>% 
+  ggplot(aes(x = nutrients, y = GrowthRate, color = as.factor(nutrients))) +
+  geom_point(size = 3.5, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.4)) + 
+  facet_grid(~temperature) +
+  theme_bw() +
+  theme(
+    # Increase facet text size
+    strip.text = element_text(size = 20),
+    # Increase axis text size
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    # Increase axis title size
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  labs(tag = "(a)")
 surface_colpidium <- surface_colpidium + labs(tag = "(b)")
 colpidium_plot + surface_colpidium
 ```
@@ -342,37 +401,92 @@ colpidium_plot + surface_colpidium
 
 
 ```{r surface_loxo, fig.cap='Measured density values of Loxocephalus in the different treatments (a) vs fitted surface of growth rate (b).', fig.align="center", fig.height=12, fig.width=25}
-loxocephalus_plot <- loxocephalus_plot + labs(tag = "(a)")
+loxocephalus_plot <- dd_r_K %>% filter(species == "Loxocephalus") %>% 
+  ggplot(aes(x = nutrients, y = GrowthRate, color = as.factor(nutrients))) +
+  geom_point(size = 3.5, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.4)) + 
+  facet_grid(~temperature) +
+  theme_bw() +
+  theme(
+    # Increase facet text size
+    strip.text = element_text(size = 20),
+    # Increase axis text size
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    # Increase axis title size
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  labs(tag = "(a)")
+
 surface_loxocephalus <- surface_loxocephalus + labs(tag = "(b)")
 loxocephalus_plot + surface_loxocephalus
 ```
 
 
 ```{r surface_paramecium, fig.cap='Measured density values of Paramecium in the different treatments (a) vs fitted surface of growth rate (b).', fig.align="center", fig.height=12, fig.width=25}
-paramecium_plot <- paramecium_plot + labs(tag = "(a)")
+paramecium_plot <- dd_r_K %>% filter(species == "Paramecium") %>% 
+  ggplot(aes(x = nutrients, y = GrowthRate, color = as.factor(nutrients))) +
+  geom_point(size = 3.5, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.4)) + 
+  facet_grid(~temperature) +
+  theme_bw() +
+  theme(
+    # Increase facet text size
+    strip.text = element_text(size = 20),
+    # Increase axis text size
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    # Increase axis title size
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  labs(tag = "(a)")
 surface_paramecium <- surface_paramecium + labs(tag = "(b)")
 paramecium_plot + surface_paramecium
 ```
 
 ```{r surface_spiro, fig.cap='Measured density values of Spirostotum in the different treatments (a) vs fitted surface of growth rate (b).', fig.align="center", fig.height=12, fig.width=25}
 surface_spirostotum <- surface_spirostotum + labs(tag = "(b)") 
-spirostomum_plot <- dd %>% 
-  filter(species == "Spirostomum") %>% 
-  ggplot( aes(x = day, y = log(density), color = as.factor(nutrients))) +
-  geom_point() +
-  geom_smooth(method = "loess", se = FALSE) +
-  geom_smooth(method = "lm", se = FALSE, aes(group = nutrients, color = factor(nutrients)), linewidth = 1.5) +  # LM line for days <= 5
-  facet_wrap(~temperature, scales = "free") +
-  scale_color_viridis_d(option = "magma") +
+spirostomum_plot <- dd_r_K %>% filter(species == "Spirostomum") %>% 
+  ggplot(aes(x = nutrients, y = GrowthRate, color = as.factor(nutrients))) +
+  geom_point(size = 3.5, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.4)) + 
+  facet_grid(~temperature) +
   theme_bw() +
-  scale_x_continuous(breaks = seq(min(dd$day), max(dd$day), by = 1)) +
-  ggtitle("Species: Spirostomum") + labs(tag = "(a)")
+  theme(
+    # Increase facet text size
+    strip.text = element_text(size = 20),
+    # Increase axis text size
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    # Increase axis title size
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  labs(tag = "(a)")
 spirostomum_plot + surface_spirostotum
 ```
 
 
 ```{r surface_tetra, fig.cap='Measured density values of Tetrahymena in the different treatments (a) vs fitted surface of growth rate (b).', fig.align="center", fig.height=12, fig.width=25}
-tetrahymena_plot <- tetrahymena_plot + labs(tag = "(a)")
+tetrahymena_plot <- dd_r_K %>% filter(species == "Tetrahymena") %>% 
+  ggplot(aes(x = nutrients, y = GrowthRate, color = as.factor(nutrients))) +
+  geom_point(size = 3.5, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.4)) + 
+  facet_grid(~temperature) +
+  theme_bw() +
+  theme(
+    # Increase facet text size
+    strip.text = element_text(size = 20),
+    # Increase axis text size
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    # Increase axis title size
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  labs(tag = "(a)")
 surface_tetrahymena <- surface_tetrahymena + labs(tag = "(b)")
 tetrahymena_plot + surface_tetrahymena
 ```
@@ -597,8 +711,8 @@ Now we calculate RD with known direction of environmental change, i.e. the ones 
 
 - fluctuating temperature x 3 fixed nutrients = 9 treatments
 
-# First env change scenario
-- first fluctuation ranges are going to be 18-22, 22-26, and 24 - 28
+## First env change scenario - changing magnitude of T change
+- first fluctuation ranges are going to be 18-22, 22-26, and 24 - 28. Temperature stays at the lower end of the range (i.e. 18C) for 3 days, it increases over 24h and stays at the higher end for 3 days.
 
 
 ```{r env_sp2_t1, fig.cap='Time series of the environmental conditions for temperature (a) and nutrients (b). These environmental conditions represent the "treatments" and will be crossed in a full factorial design resulting in 9 unique treatments', fig.align="center", fig.height=8, fig.width=15}
@@ -606,42 +720,28 @@ Now we calculate RD with known direction of environmental change, i.e. the ones 
 ### is different from potential RD, or if we get a good estimate.
 ### 3 fluctuating temperature x 3 fixed nutrients = 9 treatments
 
-### T1 = fluctuating between 18 and 22 every 72h by 4 degree Celsius
+### T1 = fluctuating between 18 and 22
 # Create a sequence of time points (one measurement per day)
-num_days = 60
-time_points <- seq(0, num_days, by = 1)
+# Set the duration of the time series
+total_days <- 60
 
-# Define the combinations of nutrients for each time series
-combinations <- list(
-  combination_1 = 1,
-  combination_2 = 3,
-  combination_3 = 5
+# Initialize a data frame to store the time series
+env_data_1 <- data.frame(
+  time = rep(1:total_days, 3),  # Time points for 60 days repeated 3 times for each nutrient level
+  temperature = rep(NA, total_days * 3),  # Initialize temperature column
+  nutrients = rep(NA, total_days * 3)  # Initialize nutrients column
 )
 
-# Initialize an empty list to store the data frames for each combination
-env_data_list <- list()
+# Set temperature values based on the description
+temperature_pattern <- c(rep(18, 3), 20, rep(22, 3))
+temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
-# Loop through each combination
-for (i in seq_along(combinations)) {
-  # Simulate temperature (fluctuating by +/- 2 degrees every 3 days)
-  temperature <- 20 + 2 * sin(2 * pi * time_points / 3)  # Fluctuation every 3 days
-  temperature <- pmin(pmax(temperature, 18), 22)  # Ensure temperature stays between 18 and 22
-  
-  # Create a data frame for the current combination
-  env_data <- data.frame(
-    time = time_points,  # Time in days
-    temperature = temperature,
-    nutrients = combinations[[i]],  # Set nutrients for the current combination
-    combination = i  # Add combination identifier
-  )
-  
-  # Append the data frame to the list
-  env_data_list[[i]] <- env_data
-}
+# Assign the temperature pattern to the temperature column for all nutrient levels
 
-# Combine the data frames for each combination into a single data frame
-env_data_1 <- do.call(rbind, env_data_list)
+env_data_1$temperature <- temperature_pattern
 
+# Set nutrients levels for each time point
+env_data_1$nutrients <- rep(c(1, 3, 5), each = total_days)
 
 
 # Plot temperature and nutrient level over time
@@ -650,7 +750,7 @@ p1 <- ggplot(env_data_1, aes(x = time, y = temperature)) +
   geom_line(color = "red") +
   labs(x = "Time (days)", y = "Temperature (°C)") +
   ggtitle("Temperature Over Time") +
-  facet_grid(~combination) +
+  facet_grid(~nutrients) +
   ylim(18, 28) +
   theme_bw()
 
@@ -659,7 +759,7 @@ p2 <- ggplot(env_data_1, aes(x = time, y = nutrients)) +
   geom_line(color = "blue") +
   labs(x = "Time (days)", y = "Nutrient Level") +
   ggtitle("Nutrient Level Over Time") +
-  facet_grid(~combination) +
+  facet_grid(~nutrients) +
   ylim(1, 5) +
   theme_bw()
 
@@ -669,39 +769,25 @@ env_data_1_plot <- p1 / p2
 
 
 ### T2 = fluctuating between 22 and 26 every 72h by 4 degree Celsius
-num_days = 60
-time_points <- seq(0, num_days, by = 1)
+total_days <- 60
 
-# Define the combinations of nutrients for each time series
-combinations <- list(
-  combination_1 = 1,
-  combination_2 = 3,
-  combination_3 = 5
+# Initialize a data frame to store the time series
+env_data_2 <- data.frame(
+  time = rep(1:total_days, 3),  # Time points for 60 days repeated 3 times for each nutrient level
+  temperature = rep(NA, total_days * 3),  # Initialize temperature column
+  nutrients = rep(NA, total_days * 3)  # Initialize nutrients column
 )
 
-# Initialize an empty list to store the data frames for each combination
-env_data_list <- list()
+# Set temperature values based on the description
+temperature_pattern <- c(rep(22, 3), 24, rep(26, 3))
+temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
-# Loop through each combination
-for (i in seq_along(combinations)) {
-  # Simulate temperature (fluctuating by +/- 2 degrees every 3 days)
-  temperature <- 24 + 2 * sin(2 * pi * time_points / 3)  # Fluctuation every 3 days
-  temperature <- pmin(pmax(temperature, 22), 26)  # Ensure temperature stays between 18 and 22
-  
-  # Create a data frame for the current combination
-  env_data <- data.frame(
-    time = time_points,  # Time in days
-    temperature = temperature,
-    nutrients = combinations[[i]],  # Set nutrients for the current combination
-    combination = i  # Add combination identifier
-  )
-  
-  # Append the data frame to the list
-  env_data_list[[i]] <- env_data
-}
+# Assign the temperature pattern to the temperature column for all nutrient levels
 
-# Combine the data frames for each combination into a single data frame
-env_data_2 <- do.call(rbind, env_data_list)
+env_data_2$temperature <- temperature_pattern
+
+# Set nutrients levels for each time point
+env_data_2$nutrients <- rep(c(1, 3, 5), each = total_days)
 
 # Plot temperature and nutrient level over time
 # Plot temperature over time
@@ -709,7 +795,7 @@ p1 <- ggplot(env_data_2, aes(x = time, y = temperature)) +
   geom_line(color = "red") +
   labs(x = "Time (days)", y = "Temperature (°C)") +
   ggtitle("Temperature Over Time") +
-  facet_grid(~combination) +
+  facet_grid(~nutrients) +
   ylim(18, 28) +
   theme_bw()
 
@@ -718,7 +804,7 @@ p2 <- ggplot(env_data_2, aes(x = time, y = nutrients)) +
   geom_line(color = "blue") +
   labs(x = "Time (days)", y = "Nutrient Level") +
   ggtitle("Nutrient Level Over Time") +
-  facet_grid(~combination) +
+  facet_grid(~nutrients) +
   ylim(1, 5) +
   theme_bw()
 
@@ -727,40 +813,26 @@ env_data_2_plot <- p1 / p2
 
 
 
-### T3 = fluctuating between 24 and 28 every 72h by 4 degree Celsius
-num_days = 60
-time_points <- seq(0, num_days, by = 1)
+### T3 = fluctuating between 24 and 28 
+total_days <- 60
 
-# Define the combinations of nutrients for each time series
-combinations <- list(
-  combination_1 = 1,
-  combination_2 = 3,
-  combination_3 = 5
+# Initialize a data frame to store the time series
+env_data_3 <- data.frame(
+  time = rep(1:total_days, 3),  # Time points for 60 days repeated 3 times for each nutrient level
+  temperature = rep(NA, total_days * 3),  # Initialize temperature column
+  nutrients = rep(NA, total_days * 3)  # Initialize nutrients column
 )
 
-# Initialize an empty list to store the data frames for each combination
-env_data_list <- list()
+# Set temperature values based on the description
+temperature_pattern <- c(rep(24, 3), 26, rep(28, 3))
+temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
-# Loop through each combination
-for (i in seq_along(combinations)) {
-  # Simulate temperature (fluctuating by +/- 2 degrees every 3 days)
-  temperature <- 26 + 2 * sin(2 * pi * time_points / 3)  # Fluctuation every 3 days
-  temperature <- pmin(pmax(temperature, 24), 28)  # Ensure temperature stays between 18 and 22
-  
-  # Create a data frame for the current combination
-  env_data <- data.frame(
-    time = time_points,  # Time in days
-    temperature = temperature,
-    nutrients = combinations[[i]],  # Set nutrients for the current combination
-    combination = i  # Add combination identifier
-  )
-  
-  # Append the data frame to the list
-  env_data_list[[i]] <- env_data
-}
+# Assign the temperature pattern to the temperature column for all nutrient levels
 
-# Combine the data frames for each combination into a single data frame
-env_data_3 <- do.call(rbind, env_data_list)
+env_data_3$temperature <- temperature_pattern
+
+# Set nutrients levels for each time point
+env_data_3$nutrients <- rep(c(1, 3, 5), each = total_days)
 
 # Plot temperature and nutrient level over time
 # Plot temperature over time
@@ -768,7 +840,7 @@ p1 <- ggplot(env_data_3, aes(x = time, y = temperature)) +
   geom_line(color = "red") +
   labs(x = "Time (days)", y = "Temperature (°C)") +
   ggtitle("Temperature Over Time") +
-  facet_grid(~combination) +
+  facet_grid(~nutrients) +
   ylim(18, 28) +
   theme_bw()
 
@@ -777,7 +849,7 @@ p2 <- ggplot(env_data_3, aes(x = time, y = nutrients)) +
   geom_line(color = "blue") +
   labs(x = "Time (days)", y = "Nutrient Level") +
   ggtitle("Nutrient Level Over Time") +
-  facet_grid(~combination) +
+  facet_grid(~nutrients) +
   ylim(1, 5) +
   theme_bw()
 
@@ -811,7 +883,7 @@ p2 <- ggplot(env_data, aes(x = time, y = nutrients)) +
   geom_line(color = "blue") +
   labs(x = "Time (days)", y = "Nutrient Level") +
   ggtitle("Nutrient Level Over Time") +
-  facet_grid(~combination) +
+  facet_grid(~nutrients) +
   ylim(1, 5) +
   theme_bw()+
    theme(# Increase facet text size
@@ -828,7 +900,7 @@ p1 / p2
 ```
 
 
-## Response diversity 2 species communities
+### Response diversity 2 species communities
 
 Same steps as before:
 
@@ -929,7 +1001,7 @@ summary_RD_2spp <- RD_2species %>% dplyr::group_by(composition) %>%
 
 ```
 
-## Response diversity 3 species communities 
+### Response diversity 3 species communities 
 
 Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
 ```{r}
@@ -1011,7 +1083,7 @@ summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>%
 RD_3sp
 ```
 
-## Response diversity 4 species communities
+### Response diversity 4 species communities
 
 Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
 ```{r}
