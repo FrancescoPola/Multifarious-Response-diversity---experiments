@@ -46,6 +46,10 @@ dd <- dd %>%
   mutate(day = match(date, unique(date))) %>% 
   select(-Date)
 
+## Remove Spirostomum outlier
+dd <- dd %>%
+  filter(!(species == "Spirostomum" & day == 11 & density == min(density)))
+
 write.csv(dd, file = here("data/data_reaction_norms.csv"), quote = FALSE, row.names = FALSE)
 
 
