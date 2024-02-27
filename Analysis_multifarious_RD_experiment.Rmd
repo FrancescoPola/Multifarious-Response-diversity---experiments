@@ -58,11 +58,51 @@ K will be calculated as the highest population biomass for each population durin
 Let's start loading the data set and creating a subset for calculating r
 ```{r}
 dd <- read.csv(here("Data/data_reaction_norms.csv"))
-
+names(dd)
+dd1 <- dd %>% select("species", "temperature", "nutrients", "sample_ID", "density", "day")
 # create a data frame with only the days of exponential growth (first 6 days)
 dd_d6 <- dd %>% filter(day <= 6) 
 
+
+str(dd1)
 ```
+
+```{r}
+# Assuming dd1 is your original data frame
+# First, let's create day_0_data with the appropriate density values for day = 0
+# Load required packages
+library(dplyr)
+
+# Assuming your original data frame is named dd1
+# Create a data frame for day == 0 with the same structure as dd1
+day_0_data <- data.frame(
+  species = rep(unique(dd1$species), each = nrow(dd1)),  # Replicate for all species
+  temperature = NA,  # Initialize with NA
+  nutrients = NA,    # Initialize with NA
+  sample_ID = NA,    # Initialize with NA
+  density = ifelse(dd1$species %in% c("Colpidium", "Dexiostoma", "Loxocephalus"), 100, 25),  # Set density values as specified
+  day = rep(0, nrow(dd1) * length(unique(dd1$species)))  # Set day = 0 for all rows
+)
+
+day_1_values <- subset(dd1, day == 1)[1, c("temperature", "nutrients", "sample_ID")]
+
+# Create a new data frame for day == 0 with the same structure as dd1
+day_0_data <- data.frame(
+  species = rep(unique(dd1$species), each = nrow(dd1)),  # Replicate for all species
+  temperature = rep(day_1_values$temperature, nrow(dd1) * length(unique(dd1$species))),
+  nutrients = rep(day_1_values$nutrients, nrow(dd1) * length(unique(dd1$species))),
+  sample_ID = rep(day_1_values$sample_ID, nrow(dd1) * length(unique(dd1$species))),
+  density = ifelse(dd1$species %in% c("Colpidium", "Dexiostoma", "Loxocephalus"), 100, 25),  # Set density values as specified
+  day = rep(0, nrow(dd1) * length(unique(dd1$species)))
+)
+
+# Combine day_0_data with dd1
+combined_data <- rbind(dd1, day_0_data)
+
+
+combined_data %>% filter(day == 0)
+```
+
 
 
 ```{r time_series_spp, fig.cap= 'Time series of species densities across the treatments.', fig.align="center", fig.height=20, fig.width=30}
