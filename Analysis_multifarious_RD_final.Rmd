@@ -1291,10 +1291,23 @@ selection<-distinct(selection,treatment,richness,composition,divergence,.keep_al
 unique(selection$treatment)
 
 
+
+
+
+
 sel_means <- selection %>%
   group_by(treatment, richness, composition) %>%
   summarize(mean_divergence = mean(divergence, na.rm = T))
 
+
+all_comm_plot<-ggplot(sel_means,aes(x=richness,y=mean_divergence,label=composition))+
+  geom_point()+
+  #geom_smooth(method="lm")+
+  theme_bw()+
+  facet_wrap(~treatment)+
+  geom_text_repel(size = 2,max.overlaps = 100)+
+  labs(title ="all communities")
+  
 
 
 
@@ -1314,35 +1327,58 @@ min_row <- grouped_dd %>%
 
 
 # Find the row with the mean_divergence closest to the mean value for each combination
+
 closest_to_mean_row <- grouped_dd %>%
-  mutate(mean_value = mean(mean_divergence)) %>%
-  group_by(treatment, richness) %>%
   filter(abs(mean_divergence - mean(mean_divergence)) == min(abs(mean_divergence - mean(mean_divergence))))
 
+# Find median value
+median_row <- grouped_dd %>%
+  filter(abs(mean_divergence - median(mean_divergence)) == min(abs(mean_divergence - median(mean_divergence))))
+
+
+
 # Combine the results into a single dataframe
-selection_final <- bind_rows(max_row, min_row, closest_to_mean_row)
+selection_final_mean <- bind_rows(max_row, min_row, closest_to_mean_row)
+
+selection_final_median <- bind_rows(max_row, min_row, median_row)
 
 filter(selection_final,treatment=="Tmp_18_21_Nut2")
 
 
 selection_final<-distinct(selection_final,richness,treatment,composition,.keep_all = T)
 
-#Quite a few communities have exactly the same divergence values
 
-ggplot(selection_final,aes(x=richness,y=mean_divergence,label=composition))+
+
+mean_plot<-ggplot(selection_final_mean,aes(x=richness,y=mean_divergence,label=composition))+
   geom_point()+
   #geom_smooth(method="lm")+
   theme_bw()+
   facet_wrap(~treatment)+
-  geom_text(hjust = 0, vjust = 0, size = 2)
+  geom_text_repel(size = 2,max.overlaps = 100)+
+  labs(title = "criteria: mean") 
 
 
+median_plot<-ggplot(selection_final_median,aes(x=richness,y=mean_divergence,label=composition))+
+  geom_point()+
+  #geom_smooth(method="lm")+
+  theme_bw()+
+  facet_wrap(~treatment)+
+  geom_text_repel(size = 2,max.overlaps = 100)+
+  labs(title = "criteria: median") 
+
+
+mean_plot+median_plot+all_comm_plot
+
+all_comm_plot
 ```
 
 
 ##Check divergence
 
 ```{r}
+
+
+
 
 new_data <- expand_grid(temperature = seq(18, 28, by= 0.02),
                         nutrients = rep(2))
@@ -1352,7 +1388,7 @@ new_data <- expand_grid(temperature = seq(18, 28, by= 0.02),
 
 
 new_nested_gams<-nested_gams%>%filter(species!="Tetrahymena")
-
+saveRDA(new_nested_gams,file="new_nested_gams.rda")
 
 get_check_plot<-function(nutrient_level){
   
@@ -1404,6 +1440,16 @@ n_1_div<-ggplot(selection_final%>%filter(treatment==
 
 
 n_1+n_1_div
+
+
+n_5_div<-ggplot(selection_final%>%filter(treatment==	
+"Tmp_22_25_Nut5"),aes(x=richness,y=mean_divergence,label=composition))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~treatment)+
+  geom_text_repel(size = 2)
+
+n_5+n_5_div
 ```
 
 
