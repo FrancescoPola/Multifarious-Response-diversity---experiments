@@ -544,217 +544,6 @@ surface_tetrahymena <- surface_tetrahymena + labs(tag = "(b)")
 tetrahymena_plot + surface_tetrahymena
 ```
 
-# Calculate Potential Response diversity 
-After discussion, we decided to remove Tetrahymena
-
-
-Now, we calculate potential response diversity for all possible communities composed of 2, 3, and 4 species.
-We start with all communities composed of 2 species.
-
-## Potential response diversity 2 species communities 
-Steps are:
-
-- Create ref environmental conditions
-```{r}
-refs2 <- crossing(temperature = seq(from = 18, to = 28, length.out = 10),
-                  nutrients = seq(from = 1, to = 5, length.out = 10))
-
-```
-
-- Create all possible communities with 2 species
-```{r}
-all_species <- c("Colpidium", "Dexiostoma", "Loxocephalus", "Paramecium", "Spirostomum")
-# Create all possible combinations of 2 species names
-all_combinations_2species <- combn(c("Colpidium", "Dexiostoma", "Loxocephalus", "Paramecium", "Spirostomum"), 2, simplify = TRUE)
-```
-
-
-- Calculate potential response diversity for all communities richness = 2 with our function "get_potential_RD"
-
-```{r, warning=FALSE}
-
-# Use lapply to iterate through each pair
-# get_potential_RD <- function(species_names, nested_gams, E1_var, E2_var)  
-# specify variables names for the "get_potential_RD" function
-E1_var <- "temperature"
-E2_var <- "nutrients"
-result_list_2species <- lapply(1:ncol(all_combinations_2species), function(i) {
-  E1_var <- "temperature"
-  E2_var <- "nutrients"
-  species_names <- all_combinations_2species[, i]
-  result <- get_potential_RD(species_names, nested_gams, E1_var, E2_var)
-  return(result)
-})
-
-# Combine all data frames into a single data frame
-final_result_2species <- do.call(rbind, result_list_2species)
-
-# Add a new column "composition" with the initial letters of species1 and species2
-final_result_2species <- final_result_2species %>%
- mutate(composition = map_chr(row_number(), ~ paste0(substr(all_combinations_2species[, .], 1, 1), collapse = "")))%>% 
-  mutate(richness = 2)
-# Print the updated final result
-#print(final_result_2species)
-
-```
-
-Results
-```{r results='asis', message=FALSE, warning=FALSE}
-## Display the parameter table
-head(final_result_2species,
-              filter="top")
-```
-
-## Potential Response Diversity 3 species communities
-```{r}
-# Generate all possible combinations of 3 species names
-combinations_3species <- combn(all_species, 3, simplify = TRUE)
-
-# specify variables names for the "get_potential_RD" function
-E1_var <- "temperature"
-E2_var <- "nutrients"
-# Use lapply to iterate through each pair
-result_list_3species <- lapply(1:ncol(combinations_3species), function(i) {
-  species_names <- combinations_3species[, i]
-  result <- get_potential_RD(species_names, nested_gams, E1_var, E2_var)
-  return(result)
-})
-
-
-# Combine all data frames into a single data frame
-result_list_3species <- do.call(rbind, result_list_3species)
-
-# Add a new column "composition" with the initial letters of species1 and species2
-result_list_3species <- result_list_3species %>%
-  mutate(composition = map_chr(strsplit(species, "_"), ~ paste0(substr(., 1, 1), collapse = "")))%>% 
-  mutate(richness = 3)
-# Print the updated final result
-#print(result_list_3species)
-
-```
-
-Results
-```{r results='asis', message=FALSE, warning=FALSE}
-## Display the parameter table
-head(result_list_3species,
-              filter="top")
-```
-
-
-## Potential Response Diversity 4 species communities 
-```{r}
-# Generate all possible combinations of 4 species names
-combinations_4species <- combn(all_species, 4, simplify = TRUE)
-
-# specify variables names for the "get_potential_RD" function
-E1_var <- "temperature"
-E2_var <- "nutrients"
-# Use lapply to iterate through each pair
-result_list_4species <- lapply(1:ncol(combinations_4species), function(i) {
-  species_names <- combinations_4species[, i]
-  result <- get_potential_RD(species_names, nested_gams, E1_var, E2_var)
-  return(result)
-})
-
-
-# Combine all data frames into a single data frame
-result_list_4species <- do.call(rbind, result_list_4species)
-
-# Add a new column "composition" with the initial letters of species1 and species2
-result_list_4species <- result_list_4species %>%
-  mutate(composition = map_chr(strsplit(species, "_"), ~ paste0(substr(., 1, 1), collapse = ""))) %>% 
-  mutate(richness = 4)
-# Print the updated final result
-#print(result_list_4species)
-
-```
-
-Results
-
-```{r results='asis', message=FALSE, warning=FALSE}
-## Display the parameter table
-head(result_list_4species,
-              filter="top")
-```
-
-<!-- Merging data frames and getting community compositions with the highest, lowest and intermediates potential response diversity for each diversity level.  -->
-```{r}
-# merge data frames
-potential_RD <- rbind(final_result_2species, result_list_3species, result_list_4species)
-
-# 
-# 
-# reshaped_potential_RD <- potential_RD %>%
-#   pivot_longer(cols = c(dissimilarity, divergence),
-#                names_to = "response_diversity",
-#                values_to = "values")
-# 
-# 
-# 
-# # Find rows with the highest and lowest values of response diversity
-# highest_values <- reshaped_potential_RD %>%
-#   group_by(richness, response_diversity) %>%
-#   filter(values == max(values)) %>%
-#   ungroup()
-# 
-# 
-# lowest_values <- reshaped_potential_RD %>%
-#   group_by(richness, response_diversity) %>%
-#   filter(values == min(values)) %>%
-#   ungroup()
-# 
-# # Calculate the median value of response diversity within each richness level
-# median_values <- reshaped_potential_RD %>%
-#   group_by(richness, response_diversity) %>%
-#   summarize(median_value = median(values))
-# 
-# # Find the rows with response diversity values closest to the median
-# median_compositions <- reshaped_potential_RD %>%
-#   group_by(richness, response_diversity) %>%
-#   mutate(diff_from_median = abs(values - median_values$median_value)) %>%
-#   filter(diff_from_median == min(diff_from_median)) %>%
-#   ungroup()
-# 
-# ranked_potential_RD_df <- rbind(highest_values, median_compositions, lowest_values)
-
-```
-<!-- Results -->
-<!-- ```{r results='asis', message=FALSE, warning=FALSE} -->
-<!-- ## Display the parameter table -->
-<!-- head(ranked_potential_RD_df, -->
-<!--               filter="top") -->
-<!-- ``` -->
-
-```{r potential_RD_plot, fig.cap='Potential Response diversity per species richness measured as dissimilarity (a) and divergence (b).', fig.align="center", fig.height=8, fig.width=15}
-potential_divergence_plot <- potential_RD %>% 
-  ggplot(aes(x = richness, y = divergence)) +
-  geom_point(size = 1.5) +
-  geom_text(aes(label = composition), vjust = -0.5, size = 4) +
-  theme_bw() + scale_x_continuous(breaks = c(2, 3, 4))  +
-  labs(tag = "(b)") +
-   theme(
-    axis.text.x = element_text(size = 16),
-    axis.text.y = element_text(size = 16),
-    # Increase axis title size
-    axis.title.x = element_text(size = 20),
-    axis.title.y = element_text(size = 20))
-
-potential_dissimilarity_plot <- potential_RD %>% 
-  ggplot(aes(x = richness, y = dissimilarity)) +
-  geom_point(size = 1.5) +
-  geom_text(aes(label = composition), vjust = -0.5, size = 4) +
-  theme_bw() + scale_x_continuous(breaks = c(2, 3, 4)) +
-  labs(tag = "(a)") +
-   theme(
-    axis.text.x = element_text(size = 16),
-    axis.text.y = element_text(size = 16),
-    # Increase axis title size
-    axis.title.x = element_text(size = 20),
-    axis.title.y = element_text(size = 20))
-
-potential_dissimilarity_plot + potential_divergence_plot
-
-```
 
 
 # Response diversity with known direction of environmental change
@@ -1300,11 +1089,6 @@ selection<-distinct(selection,treatment,richness,composition,divergence,.keep_al
 
 unique(selection$treatment)
 
-
-
-
-
-
 sel_means <- selection %>%
   group_by(treatment, richness, composition) %>%
   summarize(mean_divergence = mean(divergence))
@@ -1353,7 +1137,7 @@ selection_final_mean <- bind_rows(max_row, min_row, closest_to_mean_row)
 
 selection_final_median <- bind_rows(max_row, min_row, median_row)
 
-#random sample if double entries
+#random sample if double entries (only for selection_final_mean)
 selection_mean<-data.frame(treatment=character(),richness=numeric(),composition=character(),mean_divergence=numeric())
 
 
@@ -1372,10 +1156,6 @@ selection_mean <- selection_mean %>%
 
 
 rownames(selection_mean) <- NULL
-
-
-
-
 
 mean_plot<-ggplot(selection_mean,aes(x=richness,y=mean_divergence,label=composition))+
   geom_point()+
@@ -1401,6 +1181,7 @@ all_comm_plot
 
 
 ##Check divergence
+###Get surface slices
 
 ```{r}
 
@@ -1454,8 +1235,6 @@ plot<-ggplot(data=pred_slice,aes(x=temperature,y=prediction,colour=species))+
   return(plot)
 }
 
-
-
 n_1<-get_check_plot(0.01)
 n_2<-get_check_plot(0.75)
 n_5<-get_check_plot(3)
@@ -1480,7 +1259,7 @@ n_2+all_comm_plot
 ```
 
 
-#get the derivative
+###Get the derivative
 
 
 ```{r}
@@ -1531,616 +1310,14 @@ dn_2+mean_plot
 
 ```
 
-#alternative divergence
+
+
+# Figures
+## community selection
 ```{r}
+#install.packages("lemon")
+library(lemon)
 
-resp_div_alt<- function(x, sign_sens = TRUE) {
-  
-  flag <- TRUE # flag to catch if all values are the same
-  
-  ## set diversity to zero if all values are the same
-  if(length(unique(x)) == 1) {
-    div = 0
-    flag <- FALSE
-  }
-  
-  ## keep going only if all values are not the same
-  if(flag) {
-    
-    ## stat == range
-    if(!sign_sens) {
-        
-        d <- dist(x, diag = T) # euclidean distance matrix
-        Z <- exp(as.matrix(-d)) # similarity matrix
-        nspecies <- length(x)
-        p=matrix(1/nspecies,nspecies) # relative abundance matrix. Needs to be changed if evenness is of interest
-        lenq = 1 # initialises hill number. Need to fix if we want any evenness indices
-        qq <- seq(length=lenq, from=0, by=.11)
-        
-        # Initialise the Zp matrix to zero
-        Zp=matrix(0,nspecies,1)
-        
-        # Compute Zp
-        for (i in 1:nspecies){
-          for (j in 1:nspecies){
-            Zp[i,1]<-Zp[i,1]+Z[i,j]*p[j,1]
-          }
-        }
-        
-        # Initialise the Diversity matrix to zero
-        Dqz = matrix(0, lenq ,1)
-        
-        for (iq in 1:lenq)  {
-          q<-qq[iq];
-          for (zpi in 1:length(Zp[,1])){
-            if (Zp[zpi,1]>0)(
-              Dqz[iq,1]<-Dqz[iq,1]+ p[zpi,1]*(Zp[zpi,1])^(q-1))
-          }
-          
-          Dqz[iq,1] <- Dqz[iq,1]^(1/(1-q));
-        }
-        div <- Dqz[iq,1]
-    }
-        
-      }
-      
-      if(sign_sens) {
-        
-        x_pos<-sum(x[x>=0])
-        x_neg<-sum(x[x<=0])
-        
-        
-        div1 <- x_pos - x_neg
-        div2 <- abs(abs(x_pos) - abs(x_neg))
-        div <- (div1 - div2) / div1
-    }
-  
-  names(div) <- paste(sign_sens)
-  
-  div
-  
-}
-
-
-
-
-
-get_RD_ours_alt <- function(species_names, nested_gams, E1_var, E2_var) {
-  species_data <- nested_gams %>% filter(species %in% species_names)
-
-
-m_list <- species_data$gams
-my_spp_names <- paste0("s_", species_data$species)
-
-# Extract partial derivatives
-pd_list <- modify_depth(m_list, 1, ~ get_partials_mod(., env_data, E1_var, E2_var))
-# from list to tibble
-(pd_spp <- tibble(
-  E1_ref = map(pd_list, E1_var),
-  E2_ref = map(pd_list, E2_var),
-  pd_E1 = map(pd_list, paste0("pd_", E1_var)),
-  pd_E2 = map(pd_list, paste0("pd_", E2_var)) 
-)%>% 
-    dplyr::mutate(sp = my_spp_names) %>%
-    unnest(c(E1_ref, E2_ref, pd_E1, pd_E2)))
-
-# add time
-(pd_spp <-cbind(pd_spp, env_data$time, env_data$treatment) %>% 
-    dplyr::rename(time = "env_data$time",
-                  treatment = "env_data$treatment")) 
-  
-
-# calculation next value for directional derivatives, and get directional derivatives
-(pd_spp <- pd_spp %>% transform( nxt_value_E1 = c(E1_ref[-1], NA)) %>%
-    transform(nxt_value_E2 = c(E2_ref[-1], NA)) %>%
-    dplyr::mutate(del_E1 = nxt_value_E1 - E1_ref,
-                  del_E2 = nxt_value_E2 - E2_ref,
-                  unit_vec_mag =  sqrt(del_E1^2 + del_E2^2),
-                  uv_E1 = del_E1 / unit_vec_mag,
-                  uv_E2 = del_E2 / unit_vec_mag,
-                  dir_deriv = pd_E1 * uv_E1 +  pd_E2 * uv_E2) %>% 
-    filter(time != max(time)))
-
-
-red_spp <- pd_spp %>%  dplyr::select(sp, time, E1_ref, E2_ref, dir_deriv, treatment)
-# from long to wide
-rdiv_1 <- red_spp %>%
-  spread( sp, dir_deriv)
-
-rdiv_1[is.na(rdiv_1)] <- 0
-
-
-# actual calculation for only the same species used above
-rdiv_1$dissimilarity<-apply(dplyr:: select(rdiv_1, starts_with("s")), 1, resp_div_alt, sign_sens = F)
-rdiv_1$divergence<-apply(dplyr:: select(rdiv_1, starts_with("s")), 1, resp_div_alt, sign_sens = T)                  
-# Add species names to the result
-rdiv_1$species <- paste(species_names, collapse = "_")
-rdiv_1 <- rdiv_1 %>% select(time, treatment, E1_ref, E2_ref, dissimilarity, divergence, species)
-# community 1 
-# Return the result
-return(rdiv_1)
-}
-
-
-
-```
-
-
-
-
-### Response diversity 2 species communities
-
-Same steps as before:
-
-- Create all possible communities with 2 species
-```{r}
-all_species <- c("Colpidium", "Dexiostoma", "Loxocephalus", "Paramecium", "Spirostomum")
-# Create all possible combinations of 2 species names
-all_combinations_2species <- combn(c("Colpidium", "Dexiostoma", "Loxocephalus", "Paramecium", "Spirostomum"), 2, simplify = TRUE)
-```
-
-- Actual RD calculation
-(since temperature and nutrients are the same for 3 days in a row, the magnitude of the unit vector is zero [no direction of environmental change], so we get NAs for divergence. We replace these with zeros)
-```{r}
-
-# Use lapply to iterate through each pair
-# get_RD_ours <- function(species_names, nested_gams, E1_var, E2_var)  
-# specify variables names for the "get_RD_ours" function
-E1_var <- "temperature"
-E2_var <- "nutrients"
-env_data <- env_data
-result_list_2species_RD <- lapply(1:ncol(all_combinations_2species), function(i) {
-  E1_var <- "temperature"
-  E2_var <- "nutrients"
-  species_names <- all_combinations_2species[, i]
-  result <- get_RD_ours_alt(species_names, nested_gams, E1_var, E2_var)
-  return(result)
-})
-
-
-# Combine all data frames into a single data frame
-RD_2species <- do.call(rbind, result_list_2species_RD)
-
-# Add a new column "composition" with the initial letters of species1 and species2
-RD_2species <- RD_2species %>%
-  mutate(composition = str_split(species, "_") %>% 
-           map_chr(~ paste0(substr(.x, 1, 1), collapse = ""))) %>%   mutate(richness = 2)
-
-
-
-RD_2species_mag_1 <- RD_2species %>% rename(temperature = E1_ref,
-                         nutrients = E2_ref) 
-
-#RD_2species$divergence <- replace(RD_2species$divergence, is.nan(RD_2species$divergence), 0)
-```
-
-Results
-```{r results='asis', message=FALSE, warning=FALSE}
-## Display the parameter table
-head(RD_2species_mag_1,
-              filter="top")
-
-unique(RD_2species_mag_1$composition)
-```
-
-
-
-
-### Response diversity 3 species communities 
-
-- Create all possible communities with 2 species
-```{r}
-# Create all possible combinations of 2 species names
-combinations_3species <- combn(c("Colpidium", "Dexiostoma", "Loxocephalus", "Paramecium", "Spirostomum"), 3, simplify = TRUE)
-```
-
-
-Now, we calculate RD for all possible communities of 3 species knowing the direction of the environmental change (we created before).
-```{r}
-### Now same but with 3 species
-#T1
-E1_var <- "temperature"
-E2_var <- "nutrients"
-env_data <- env_data
-result_list_3species_RD <- lapply(1:ncol(combinations_3species), function(i) {
-  E1_var <- "temperature"
-  E2_var <- "nutrients"
-  species_names <- combinations_3species[, i]
-  result <- get_RD_ours_alt(species_names, nested_gams, E1_var, E2_var)
-  return(result)
-})
-
-
-# Combine all data frames into a single data frame
-RD_3species <- do.call(rbind, result_list_3species_RD)
-
-# Add a new column "composition" with the initial letters of species1 and species2
-RD_3species <- RD_3species %>%
-  mutate(composition = str_split(species, "_") %>% 
-           map_chr(~ paste0(substr(.x, 1, 1), collapse = ""))) %>%   mutate(richness = 3)
-
-
-
-
-RD_3species_mag_1 <- RD_3species %>% rename(temperature = E1_ref,
-                                          nutrients = E2_ref) 
-```
-
-```{r results='asis', message=FALSE, warning=FALSE}
-## Display the parameter table
-head(RD_3species_mag_1,
-              filter="top")
-
-
-```
-
-
-
-### Response diversity 4 species communities
-
-Now, we calculate RD for all possible communities of 4 species knowing the direction of the environmental change (we created before).
-
-
-
-```{r}
-# Create all possible combinations of 2 species names
-combinations_4species <- combn(c("Colpidium", "Dexiostoma", "Loxocephalus", "Paramecium", "Spirostomum"), 4, simplify = TRUE)
-```
-
-```{r}
-### Now same but with 4 species
-#T1
-E1_var <- "temperature"
-E2_var <- "nutrients"
-env_data <- env_data
-result_list_4species_RD <- lapply(1:ncol(combinations_4species), function(i) {
-  E1_var <- "temperature"
-  E2_var <- "nutrients"
-  species_names <- combinations_4species[, i]
-  result <- get_RD_ours_alt(species_names, nested_gams, E1_var, E2_var)
-  return(result)
-})
-
-
-# Combine all data frames into a single data frame
-RD_4species <- do.call(rbind, result_list_4species_RD)
-
-# Add a new column "composition" with the initial letters of species1 and species2
-RD_4species <- RD_4species %>%
-  mutate(composition = str_split(species, "_") %>% 
-           map_chr(~ paste0(substr(.x, 1, 1), collapse = ""))) %>%   mutate(richness = 4)
-
-
-
-
-RD_4species_mag_1 <- RD_4species %>% rename(temperature = E1_ref,
-                                          nutrients = E2_ref) 
-```
-
-```{r results='asis', message=FALSE, warning=FALSE}
-## Display the parameter table
-head(RD_4species_mag_1,
-              filter="top")
-
-
-
-
-```
-
-
-
-##select communities
-
-```{r}
-
-mag_2 <- rbind(RD_2species_mag_1, RD_3species_mag_1, RD_4species_mag_1)
-
-#write.csv(mag_2,"final_scenario_alt_divergence.csv")
-
-
-selection_2<-mag_2[!is.na(mag_2$divergence),]
-selection_2<-distinct(selection_2,treatment,richness,composition,divergence,.keep_all = T)
-
-
-
-
-
-
-
-
-sel_means_2 <- selection_2 %>%
-  group_by(treatment, richness, composition) %>%
-  summarize(mean_divergence = mean(divergence))
-
-
-all_comm_plot_2<-ggplot(sel_means_2,aes(x=richness,y=mean_divergence,label=composition))+
-  geom_point()+
-  #geom_smooth(method="lm")+
-  theme_bw()+
-  facet_wrap(~treatment)+
-  geom_text_repel(size = 2,max.overlaps = 100)+
-  labs(title ="all communities alt")
-
-all_comm_plot+all_comm_plot_2
-
-
-cor(sel_means_2$mean_divergence,sel_means$mean_divergence)
-
-cor_df<-rename(sel_means_2,alt_divergence="mean_divergence")
-cor_df<-cbind(sel_means,alt_divergence=cor_df$alt_divergence)
-cor_df<-filter(cor_df,richness>2)
-
-ggplot(cor_df,aes(x=mean_divergence,y=alt_divergence))+
-  geom_point()+
-  theme_bw()
-cor(cor_df$mean_divergence,cor_df$alt_divergence)
-
-
-# Group by composition and treatment
-grouped_dd <- sel_means_2 %>%
-  group_by(richness, treatment)
-
-# Find the row with the maximum mean_divergence
-max_row <- grouped_dd %>%
-  filter(mean_divergence == max(mean_divergence))
-
-# Find the row with the minimum mean_divergence
-min_row <- grouped_dd %>%
-  filter(mean_divergence == min(mean_divergence))
-
-
-
-# Find the row with the mean_divergence closest to the mean value for each combination
-
-closest_to_mean_row <- grouped_dd %>%
-  filter(abs(mean_divergence - mean(mean_divergence)) == min(abs(mean_divergence - mean(mean_divergence))))
-
-# Find median value
-median_row <- grouped_dd %>%
-  filter(abs(mean_divergence - median(mean_divergence)) == min(abs(mean_divergence - median(mean_divergence))))
-
-
-
-# Combine the results into a single dataframe
-selection_final_mean_2 <- bind_rows(max_row, min_row, closest_to_mean_row)
-
-selection_final_median_2 <- bind_rows(max_row, min_row, median_row)
-
-
-
-
-
-
-
-
-mean_plot_alt<-ggplot(selection_final_mean_2,aes(x=richness,y=mean_divergence,label=composition))+
-  geom_point()+
-  #geom_smooth(method="lm")+
-  theme_bw()+
-  facet_wrap(~treatment)+
-  geom_text_repel(size = 2,max.overlaps = 100)+
-  labs(title = "criteria: mean (alt)") 
-
-
-mean_plot+mean_plot_alt
-```
-
-
-
-
-## average performance
-```{r}
-
-get_performance<-function(nutrient_level,temp){
-  
-  new_data <- expand_grid(temperature = temp,
-                        nutrients = nutrient_level)
-  num_rows <- nrow(new_data)
-
-pred_slice <- data.frame(matrix(nrow = num_rows, ncol = 0))
-
-for (j in 1:length(new_nested_gams$species)) {
-  predictions <- unlist(map(nested_gams$gams[j], ~ predict(.x, newdata = new_data)))
-  pred_slice <- bind_rows(pred_slice, data.frame(prediction = predictions, species = new_nested_gams$species[j]))
-}
-
-pred_slice <- na.omit(pred_slice)
-
-pred_slice<-cbind(pred_slice,new_data)
-
-  return(pred_slice)
-}
-
-
-pred_r<-get_performance(c(1,2,5),c(18,21,22,25,28))
-
-pred_r_comb<-expand.grid(temperature=c(18,21,22,25,28),
-                         nutrient=c(1,2,5),
-                         composition=unique(selection$composition))
-
-av_perf<-c()
-for(i in 1:length(pred_r_comb$composition)){
-  comp<-as.character(pred_r_comb$composition)[i]
-  len<-nchar(comp)
-  cha<-c()
-  for (b in 1:len){
-    cha<-cha%>%append(substr(comp, b, b))
-  }
-  
-  perfs<-filter(pred_r,substr(species, 1, 1)%in%cha,
-         temperature==pred_r_comb$temperature[i],
-         nutrients==pred_r_comb$nutrient[i])
-  mean_perf<-mean(perfs$prediction)
-  
-  av_perf<-av_perf%>%append(mean_perf)
-}
-av_perf
-
-
-pred_r_comb<-cbind(pred_r_comb,av_perf)
-
-View(pred_r_comb)
-
-selection_perf<-selection
-
-av_pref_2<-c()
-for(i in 1:length(selection_perf$treatment)){
-  
-  s<-filter(pred_r_comb,nutrient==selection_perf$nutrients[i],
-         temperature==selection_perf$temperature[i],
-         composition==selection_perf$composition[i])
-  av_pref_2<-av_pref_2%>%append(s$av_perf)
-}
-
-selection_perf<-cbind(selection_perf,av_pref_2)
-
-selection_perf<-group_by(selection_perf,treatment,composition,richness)%>%summarise(mean_performance=mean(av_pref_2))
-
-
-selection_perf<-cbind(selection_perf,mean_divergence=sel_means$mean_divergence)
-
-ggplot(selection_perf,aes(x=mean_performance,y=mean_divergence))+
-  geom_point()
-
-cor(selection_perf$mean_performance,selection_perf$mean_divergence)
-```
-
-
-
-
-##look at nutrient lvl vs actual values
-```{r}
-
-N_lvl<-data.frame(lvl=c(1,2,3,4,5),conc=c(0.01,0.75,1.25,2.5,3))
-
-ggplot(data=N_lvl,aes(x=lvl,y=conc))+
-  geom_point()
-```
-
-
-
-## plot 3D surfaces
-
-```{r}
-library(reshape2)
-
-df<-filter(rates,species=="Colpidium")
-
-
-
-
-r_surface = acast(df, temperature ~ nutrients, value.var = "predicted") 
-
-library(RColorBrewer)
-####################################### 
-plot <- plot_ly()%>%
-  add_surface(z=~r_surface,type="surface",
-                colorscale="Reds",
-                opacity=1,
-                contours=list(z=list(show=T,start=-1,end=1,size=0.1)))
-
-v<-seq(-1,1,length.out=500*300)
-matrix_data<-matrix(v,ncol=300)
-
-
-plot<-plot%>%add_surface(type="surface",
-                         x=rep(75,300),
-                   z=~matrix_data,
-                   colorscale=list(c(0,1),c("grey","grey")),
-                   opacity=0.7,showscale=FALSE)
-
-plot <- plot %>% layout(title=list(text="Colpidium",y=0.9,x=0.15),scene = list(camera = list(eye = list(x = 1.5, y = 1.5, z = 1.5)),
-  xaxis = list(title = "Nutrients", tickmode = "array", tickvals = seq(50,300,by=50), ticktext = seq(0.5,3,by=0.5),showgrid=F),
-                                    
-  yaxis = list(title = "Temperature", tickmode = "array", tickvals = seq(0,500,by=50), ticktext = seq(18,28,by=1),showgrid=F),
-                                    
-  zaxis = list(visible=F,showline=F,showgrid=F)
-  
-  ))%>%colorbar(title = "growth rate",thickness=20,len=0.4,outlinecolor="white")
-                                                             
-
-
-
-###################################
-
-brewer.pal(n = 8, name = "Dark2")
-color_sp<-c("#1B9E77" ,"#D95F02" ,"#7570B3", "#E7298A" ,"#66A61E")
-
-s_plots <- list()
-
-for (i in seq_along(new_nested_gams$gams)) {
-  species_name <- new_nested_gams$species[i]
-  col<-color_sp[i]
- 
-  df<-filter(rates,species==species_name)
-  r_surface <- acast(df, temperature ~ nutrients, value.var = "predicted") 
-
-plot <- plot_ly()%>%
-  add_surface(z=~r_surface,type="surface",
-                colorscale=list(c(0,1),c("white",col)),
-                opacity=1,
-                showscale=FALSE,
-                contours=list(z=list(show=T,start=-1,end=3,size=0.1)))
-
-v<-seq(min(df$predicted),max(df$predicted),length.out=500*300)
-matrix_data<-matrix(v,ncol=300)
-
-
-plot<-plot%>%add_surface(type="surface",
-                         x=rep(75,300),
-                   z=~matrix_data,
-                   colorscale=list(c(0,1),c("grey","grey")),
-                   opacity=0.7,showscale=FALSE)
-
-plot <- plot %>% layout(title=list(text=species_name,y=0.8,x=0.15),scene = list(camera = list(eye = list(x = 1.7, y = 1.7, z = 1.5)),
-  xaxis = list(title = list(text="Nutrients [g/L]",font=list(size=13)), tickmode = "array", tickvals = seq(50,300,by=50), ticktext = seq(0.5,3,by=0.5),ticklen=0,showgrid=F,zeroline=F),
-                                    
-  yaxis = list(title =list(text="Temperature [°C]",font=list(size=13)), tickmode = "array", tickvals = seq(0,500,by=100), ticktext = seq(18,28,by=2),ticklabelposition="inside bottom",ticklen=0,showgrid=F,zeroline=F),
-                                    
-  zaxis = list(title=list(text="growth rate",font=list(size=13)),tickvals = c(-1,-0.5,0,0.5,1,1.5,2),visible=T,showgrid=T,zeroline=F)
-  
-  ))%>%colorbar(title = "growth rate",thickness=20,len=0.4,outlinecolor="white")
-                                                    
-
-
-  
-  # Save the plot in the list
-  s_plots[[species_name]] <- plot
-  
-}
-
-
-s_dexiostoma <- s_plots[["Dexiostoma"]]
-s_colpidium <- s_plots[["Colpidium"]]
-s_loxocephalus <- s_plots[["Loxocephalus"]]
-s_paramecium <- s_plots[["Paramecium"]]
-s_spirostotum <- s_plots[["Spirostomum"]]
-
-
-library(htmlwidgets)
-
-# Save viewer settings (e.g. RStudio viewer pane)
-op <- options()
-
-# Set viewer to web browser
-options(viewer = NULL)
-
-# Use web browser to save image
-s_dexiostoma %>% htmlwidgets::onRender(
-  "function(el, x) {
-  var gd = document.getElementById(el.id); 
-  Plotly.downloadImage(gd, {format: 'png', width: 1200, height: 1600, filename: 's_dexiostoma'});
-  }"
- )
-
-# Restore viewer to old setting (e.g. RStudio)
-options(viewer = op$viewer)
-
-```
-
-
-## figure1
-```{r}
 selection_mean<- selection_mean %>%
   mutate(
     temperature = gsub("Tmp_(\\d+_\\d+)_.*", "\\1", treatment),  
@@ -2156,8 +1333,7 @@ selection_mean <- selection_mean %>%
 
 selection_mean$richness<-as.factor(selection_mean$richness)
 
-install.packages("lemon")
-library(lemon)
+
 
 mean_plot<-ggplot(selection_mean,aes(x=richness,y=mean_divergence,label=composition))+
   geom_point(size=3)+
@@ -2207,9 +1383,11 @@ single_plot<-ggplot(selection_mean_single,aes(x=richness,y=mean_divergence,label
         strip.text.y = element_text(margin = margin(l = 10)),
         axis.title.y = element_text(margin = margin(r = 15)),
         axis.title.x = element_text(margin = margin(t = 15)))
+```
 
+##Figure 1C
 
-
+```{r}
 # get derivatives 
 
 
@@ -2273,6 +1451,8 @@ dn_1_LS <- dn_1_LS +
   annotate("text",x = 25.5, y = 0.32, label = "divergence = 0.00", size = 3, color = "black")
 
 
+fig1C<-ggarrange(dn_1_LS+ylab("directional derivative"),dn_1_CD+xlab("temperature [°C]"),dn_1_DS,ncol=3,nrow=1,align="h")
+
 fig_plot<-get_deriv_adj(0.01,sp=c("Colpidium","Spirostomum","Dexiostoma","Loxocephalus"),t_range=c(25,28),c=color_sp[c(1,2,3,5)])
 
 legend<-fig_plot+
@@ -2280,33 +1460,15 @@ legend<-fig_plot+
 
 
 
-fig1<-ggarrange(dn_1_DS,dn_1_CD,dn_1_LS,ncol=1,common.legend=F,align = "v"#,legend.grob = get_legend(legend),align = "v",legend="top"
-)
-
-
-fig1<-annotate_figure(fig1,
-                      left=text_grob("directional derivative",size=11,rot=90,vjust=3))
-
-#single_plot2<-annotate_figure(single_plot,
-#                    left=text_grob("mean divergence",size=11,rot=90,vjust=3))
-
-
-single_plot1<-single_plot+annotate("text",x = 2, y = 0.9, label = "temperature = 25-28 °C", size = 3, color = "black",hjust=0)+
-  annotate("text", x = 2, y = 0.88, label = "nutrients = 0.01 g/L", size = 3, color = "black",hjust=0)
-
-
-
-fig1<-ggarrange(mean_plot,single_plot1,fig1,ncol=3,labels=c("E","F","G"))
 ```
 
 
-
-
-
-
-## figure2 ggplot
+## Figure 1A 
 
 ```{r}
+
+library(grid)
+library(gridExtra) 
 
 s2d_plots <- list()
 
@@ -2355,14 +1517,11 @@ s_loxocephalus <- s2d_plots[["Loxocephalus"]]
 s_paramecium <- s2d_plots[["Paramecium"]]
 s_spirostotum <- s2d_plots[["Spirostomum"]]
 
-library(ggplot2) 
-library(grid)
-library(gridExtra) 
+
+
+#first change #guides() above
 
 legend_spir <- cowplot::get_legend(s_spirostotum)
-
-
-
 legend_dexi <- cowplot::get_legend(s_dexiostoma)
 legend_colp <- cowplot::get_legend(s_colpidium)
 legend_loxo <- cowplot::get_legend(s_loxocephalus)
@@ -2374,81 +1533,27 @@ legends<-annotate_figure(legends,
                          top=text_grob("growth rate",size=15,vjust=1,hjust=1.3))
 
 
-fig2<-ggarrange(legends,s_dexiostoma,s_loxocephalus,s_paramecium,s_spirostotum,s_colpidium,common.legend=F,nrow=3,ncol=2,align="hv")
+#run first surface plots without the guides on (don't rerun legends)
 
-
-fig2<-annotate_figure(fig2,
-                      left=text_grob("nutrients [g/L]",size=11,rot=90,vjust=0.9),bottom=text_grob("temperature [°C]"))
-
-
-
-
-
-Tplot <- ggplot(env_data_2, aes(x = time, y = temperature)) +
-  geom_line(color = "red") +
-  labs( y = "temperature [°C]")+
-  ylim(21, 26) +
-  xlim(0,50)+
-   theme(strip.background = element_blank(),  
-        strip.text = element_text(size = 10, color = "black"),
-        strip.text.x = element_text(margin = margin(b = 10)),
-        strip.text.y = element_text(margin = margin(l = 10)),
-        axis.title.y = element_text(margin = margin(r = 15)),
-        axis.title.x = element_blank())
-   
-   
-Nplot <- ggplot(filter(env_data_2,nutrients==0.75), aes(x = time, y = nutrients)) +
-  geom_line(color = "blue") +
-  labs( y = "nutrients [g/L]")+
-  ylim(0,3)+
-  xlim(0,50)+
-   theme(strip.background = element_blank(),  
-        strip.text = element_text(size = 10, color = "black"),
-        strip.text.x = element_text(margin = margin(b = 10)),
-        strip.text.y = element_text(margin = margin(l = 10)),
-        axis.title.y = element_text(margin = margin(r = 15)),
-        axis.title.x = element_blank())
-
-env_plot<-ggarrange(Tplot,Nplot,ncol=2,nrow=1)
-
-
-env_plot<-annotate_figure(env_plot,
-                      bottom=text_grob("time [days]"))
-
-
-fig2_c<-ggarrange(n_2,dn_2,env_plot,ncol=1,nrow=3,heights=c(2,2,1))
-
-fig2_f<-ggarrange(fig2,fig2_c)
-
-
-```
-
-
-
-
-## fig3
-```{r}
-
-fig3a<-ggarrange(s_dexiostoma,s_loxocephalus,s_paramecium,s_spirostotum,s_colpidium,legends,common.legend=F,nrow=2,ncol=3,align="hv")+
+fig1A<-ggarrange(s_dexiostoma,s_loxocephalus,s_paramecium,s_spirostotum,s_colpidium,legends,common.legend=F,nrow=2,ncol=3,align="hv")+
   theme(plot.margin = margin(0.1,0.1,0.1,1.5, "cm")) 
 
 
 
-fig3a<-annotate_figure(fig3a,bottom=text_grob("temperature [°C]",size=15),
+fig1A<-annotate_figure(fig1A,bottom=text_grob("temperature [°C]",size=15),
                        left=text_grob("nutrients [g/L]",size=15,vjust=2,rot=90))
 
+```
+
+##Figure 1B
+
+
+```{r}
 n_1a<-n_1+annotate("text",x = 25.1, y = 0.9, label = "temperature: 25-28 °C", size = 3, color = "black",hjust=0)+
   annotate("text",x = 25.1, y = 0.75, label = "nutrients: 0.01 g/L", size = 3, color = "black",hjust=0)
 
 
-fig3b<-ggarrange(n_1a,dn_1,ncol=1,nrow=2)
-
-fig3b<-ggarrange(fig3b,labels=c("B"),font.label = list(size=20),label.x=-0.01)
-
-fig3c<-ggarrange(dn_1_LS+ylab("directional derivative"),dn_1_CD+xlab("temperature [°C]"),dn_1_DS,ncol=3,nrow=1,align="h")
-
-
-
+fig1B<-ggarrange(n_1a,dn_1,ncol=1,nrow=2)
 
 ```
 
@@ -2508,6 +1613,7 @@ plot_regression_day <- ggplot(dd_fig, aes(x = day, y = log10(density), color = a
     legend.key.size = unit(2, "lines")  # Adjust the size as needed
   )+ylab(expression( log(density) ~ "["~ mL^-1 ~ "]" ))+labs(color="nutrients [g/L]")
 
+##########################
 
 strings<-c()
 
