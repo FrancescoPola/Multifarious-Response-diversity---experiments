@@ -50,7 +50,7 @@ theme_set(theme_classic())
 The goal of this document is to calculate the growth rate (r) and the carrying capacity (K) of 6 species of ciliates 
 that we grew individually in a replicated (n = 3) factorial experiment with 5 temperatures (18, 21, 24, 26, and 28), 5 nutrients levels and their combinations (= 25 treatments) for 3 weeks. 
 The calculated r and K are then going to be used as the traits to calculate potential response diversity of communities composed of 2, 3, and 4 species to all possible changes in temperature and nutrients. The calculated potential response diversity will inform us on which communities will be used in the following experimental step.
-We are going to calculate the growth rate as the slope of the regression of ln(Nt) where: ln is natural log and Nt is the population density at time t, during the period of exponential growth. 
+We are going to calculate the growth rate as the slope of the regression of ln(Nt) where: ln is natural log10 and Nt is the population density at time t, during the period of exponential growth. 
 We are going to set initially the period of exponential growth as the first 6 days, but we are going to visually check whether this choice is correct. 
 K will be calculated as the highest population biomass for each population during the experiment.
 
@@ -60,11 +60,17 @@ Let's start loading the data set and creating a subset for calculating r
 dd <- read.csv(here("Data/data_reaction_norms.csv"))
 names(dd)
 dd1 <- dd %>% select("species", "temperature", "nutrients", "sample_ID", "density", "day")
+dd1 <- dd1 %>%
+  mutate(nutrients = case_when(
+    nutrients == 1 ~ 0.01,
+    nutrients == 2 ~ 0.75,
+    nutrients == 3 ~ 1.25,
+    nutrients == 4 ~ 2.5,
+    nutrients == 5 ~ 3
+  ))
 # create a data frame with only the days of exponential growth (first 6 days)
 dd_d6 <- dd %>% filter(day <= 6) 
 
-
-str(dd1)
 ```
 
 ```{r}
@@ -99,8 +105,6 @@ day_0_data <- data.frame(
 # Combine day_0_data with dd1
 combined_data <- rbind(dd1, day_0_data)
 
-
-combined_data %>% filter(day == 0)
 ```
 
 
@@ -108,7 +112,7 @@ combined_data %>% filter(day == 0)
 ```{r time_series_spp, fig.cap= 'Time series of species densities across the treatments.', fig.align="center", fig.height=20, fig.width=30}
 
 # plot sp densities over time
-ggplot(dd, aes(x = day, y = log(density), color = as.factor(nutrients))) +
+ggplot(dd, aes(x = day, y = log10(density), color = as.factor(nutrients))) +
   geom_point(size = 2) +
   geom_smooth(method = "loess", se = FALSE, linewidth = 2) +
   scale_color_viridis_d(option = "magma") +
@@ -161,9 +165,9 @@ grouped_data_d6 <- grouped_data_d6 %>% filter(!(species %in% c("Colpidium", "Lox
 
 growth_rates_df <- grouped_data_d6 %>%
   summarise(
-    Intercept = coef(lm(log(density + 0.001) ~ day))[1],
-    GrowthRate = coef(lm(log(density + 0.001) ~ day))[2],
-    RSquared = summary(lm(log(density + 0.001) ~ day))$r.squared,
+    Intercept = coef(lm(log10(density + 0.001) ~ day))[1],
+    GrowthRate = coef(lm(log10(density + 0.001) ~ day))[2],
+    RSquared = summary(lm(log10(density + 0.001) ~ day))$r.squared,
     .groups = 'drop'
   )
 
@@ -173,9 +177,9 @@ spiro_r_df <- dd %>% filter(species == "Spirostomum") %>%
   
   spiro_r <-  spiro_r_df %>%
   summarise(
-    Intercept = coef(lm(log(density + 0.001) ~ day))[1],
-    GrowthRate = coef(lm(log(density + 0.001) ~ day))[2],
-    RSquared = summary(lm(log(density + 0.001) ~ day))$r.squared,
+    Intercept = coef(lm(log10(density + 0.001) ~ day))[1],
+    GrowthRate = coef(lm(log10(density + 0.001) ~ day))[2],
+    RSquared = summary(lm(log10(density + 0.001) ~ day))$r.squared,
     .groups = 'drop'
   )
   
@@ -186,9 +190,9 @@ colp_28 <- dd %>% filter((species %in% "Colpidium" & temperature == 28)) %>%
   group_by(species, nutrients, temperature, sample_ID) 
   
 colp_28_r <- colp_28 %>% summarise(
-    Intercept = coef(lm(log(density + 0.001) ~ day))[1],
-    GrowthRate = coef(lm(log(density + 0.001) ~ day))[2],
-    RSquared = summary(lm(log(density + 0.001) ~ day))$r.squared,
+    Intercept = coef(lm(log10(density + 0.001) ~ day))[1],
+    GrowthRate = coef(lm(log10(density + 0.001) ~ day))[2],
+    RSquared = summary(lm(log10(density + 0.001) ~ day))$r.squared,
     .groups = 'drop'
   )
 
@@ -197,9 +201,9 @@ loxo_28 <- dd %>% filter((species %in% "Loxocephalus" & temperature == 28)) %>%
   group_by(species, nutrients, temperature, sample_ID) 
   
 loxo_28_r <- loxo_28 %>% summarise(
-    Intercept = coef(lm(log(density + 0.001) ~ day))[1],
-    GrowthRate = coef(lm(log(density + 0.001) ~ day))[2],
-    RSquared = summary(lm(log(density + 0.001) ~ day))$r.squared,
+    Intercept = coef(lm(log10(density + 0.001) ~ day))[1],
+    GrowthRate = coef(lm(log10(density + 0.001) ~ day))[2],
+    RSquared = summary(lm(log10(density + 0.001) ~ day))$r.squared,
     .groups = 'drop'
   )
     
@@ -223,8 +227,8 @@ for (species_name in unique(dd$species)) {
     filter(species == species_name)
   
   # Create ggplot object
-  ggplot_object <- ggplot(subset_data, aes(x = day, y = log(density + 0.001), color = as.factor(nutrients))) +
-    geom_point(data = subset_data, aes(x = day, y = log(density + 0.001), color = as.factor(nutrients))) +
+  ggplot_object <- ggplot(subset_data, aes(x = day, y = log10(density + 0.001), color = as.factor(nutrients))) +
+    geom_point(data = subset_data, aes(x = day, y = log10(density + 0.001), color = as.factor(nutrients))) +
     geom_smooth(data = subset_data, method = "loess", se = FALSE) +
     geom_smooth(data = subset_data %>% filter(day <= 6), method = "lm", se = FALSE, aes(group = nutrients, color = factor(nutrients)), linewidth = 1.5) +  # Add LM line
     scale_color_viridis_d(option = "magma") +
@@ -254,7 +258,7 @@ tetrahymena_plot <- ggplot_objects[["Tetrahymena"]]
 
 # Create ggplot object
 
-plot_regression_day <- ggplot(dd, aes(x = day, y = log(density), color = as.factor(nutrients))) +
+plot_regression_day <- ggplot(dd, aes(x = day, y = log10(density), color = as.factor(nutrients))) +
   geom_point() +
   geom_smooth(method = "loess", se = FALSE) +
   geom_smooth(data = dd %>% filter(day <= 6, species != "Spirostomum"), method = "lm", se = FALSE, aes(group = nutrients, color = factor(nutrients)), linewidth = 1.5) +  # LM line for days <= 5
@@ -355,14 +359,15 @@ for (i in seq_along(nested_gams$gams)) {
   
   # Create a new plot for each species
   plot <- ggplot(rates %>% filter(species == species_name),
-                 aes(x = temperature, y = nutrients, z = predicted)) +
-    geom_tile(aes(fill = predicted), color = "white") +
-    geom_contour(color = "black", linetype = "solid", breaks = seq(-1, 1, by = 0.1), n = 10) +  
-    scale_fill_viridis_c() +
-    labs(title = paste("GAM Surface for", species_name),
-         fill = "Predicted Growth Rate") +
-    theme_bw() +
-    scale_x_continuous(breaks = c(18, 21, 24, 26, 28))
+               aes(x = temperature, y = nutrients, z = predicted)) +
+  geom_tile(aes(fill = predicted), color = "white") +
+  geom_contour(color = "black", linetype = "solid", breaks = seq(-1, 1, by = 0.1), n = 10) +  
+  scale_fill_distiller(palette = "RdBu") +
+  labs(title = paste("GAM Surface for", species_name),
+       fill = "Predicted Growth Rate") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(18, 21, 24, 26, 28))
+
   
   # Save the plot in the list
   surface_plots[[species_name]] <- plot
@@ -381,9 +386,9 @@ surface_paramecium <- surface_plots[["Paramecium"]]
 surface_spirostotum <- surface_plots[["Spirostomum"]]
 surface_tetrahymena <- surface_plots[["Tetrahymena"]]
 
-
-Dexiostoma <- filter(nested_gams, species == "Dexiostoma")
-surface_dexiostoma + draw(Dexiostoma$gams[[1]], rug = FALSE, dist = 0.5)
+# 
+# Dexiostoma <- filter(nested_gams, species == "Dexiostoma")
+# surface_dexiostoma + draw(Dexiostoma$gams[[1]], rug = FALSE, dist = 0.5)
 
 
 # Checking predictions
@@ -777,7 +782,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 3), 20, rep(22, 3))
+temperature_pattern <- c(rep(18, 3),  rep(22, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -826,7 +831,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 3), 24, rep(26, 3))
+temperature_pattern <- c(rep(22, 3), rep(26, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -872,7 +877,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(24, 3), 26, rep(28, 3))
+temperature_pattern <- c(rep(24, 3), rep(28, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -1044,13 +1049,13 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_mag_1 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
 
 
-RD_2species_mag_1 <- RD_2species_mag_1 %>% 
-  filter(dissimilarity == unique(dissimilarity))
+
   
 
 ```
@@ -1133,6 +1138,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -1217,6 +1223,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -1286,7 +1293,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 3), 19.5, rep(21, 3))
+temperature_pattern <- c(rep(18, 3), rep(21, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -1337,7 +1344,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 3), 23.5, rep(25, 3))
+temperature_pattern <- c(rep(22, 3), rep(25, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -1384,7 +1391,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(25, 3), 26.5, rep(28, 3))
+temperature_pattern <- c(rep(25, 3), rep(28, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -1554,6 +1561,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_mag_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -1637,6 +1645,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_mag_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -1719,6 +1728,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species_mag_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -1789,7 +1799,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 3), 19, rep(20, 3))
+temperature_pattern <- c(rep(18, 3), rep(20, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -1839,7 +1849,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 3), 23, rep(24, 3))
+temperature_pattern <- c(rep(22, 3), rep(24, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -1886,7 +1896,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(26, 3), 27, rep(28, 3))
+temperature_pattern <- c(rep(26, 3), rep(28, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -2056,6 +2066,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_mag_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -2139,6 +2150,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_mag_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -2222,6 +2234,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species_mag_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -2309,7 +2322,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 5), 20, rep(22, 5))
+temperature_pattern <- c(rep(18, 5), rep(22, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -2358,7 +2371,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 5), 24, rep(26, 5))
+temperature_pattern <- c(rep(22, 5), rep(26, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -2404,7 +2417,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(24, 5), 26, rep(28, 5))
+temperature_pattern <- c(rep(24, 5), rep(28, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -2571,6 +2584,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_fluct_1 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -2654,6 +2668,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_fluct_1 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -2736,6 +2751,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -2805,7 +2821,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 5), 19.5, rep(21, 5))
+temperature_pattern <- c(rep(18, 5), rep(21, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -2856,7 +2872,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 5), 23.5, rep(25, 5))
+temperature_pattern <- c(rep(22, 5), rep(25, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -2903,7 +2919,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(25, 5), 26.5, rep(28, 5))
+temperature_pattern <- c(rep(25, 5), rep(28, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -3072,6 +3088,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_fluct_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -3155,6 +3172,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_fluct_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -3237,6 +3255,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species_fluct_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -3305,7 +3324,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 5), 19, rep(20, 5))
+temperature_pattern <- c(rep(18, 5), rep(20, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -3355,7 +3374,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 5), 23, rep(24, 5))
+temperature_pattern <- c(rep(22, 5), rep(24, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -3402,7 +3421,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(26, 5), 27, rep(28, 5))
+temperature_pattern <- c(rep(26, 5), rep(28, 5))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -3573,6 +3592,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_fluct_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -3656,6 +3676,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_fluct_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -3738,6 +3759,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -3815,7 +3837,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 3), 20, rep(22, 3))
+temperature_pattern <- c(rep(18, 3), rep(22, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -3864,7 +3886,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 3), 24, rep(26, 3))
+temperature_pattern <- c(rep(22, 3), rep(26, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -3910,7 +3932,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(24, 3), 26, rep(28, 3))
+temperature_pattern <- c(rep(24, 3), rep(28, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -4079,6 +4101,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_nut_1 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -4162,6 +4185,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_nut_1 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -4244,6 +4268,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species_nut_1 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -4314,7 +4339,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 3), 19.5, rep(21, 3))
+temperature_pattern <- c(rep(18, 3), rep(21, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -4365,7 +4390,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 3), 23.5, rep(25, 3))
+temperature_pattern <- c(rep(22, 3), rep(25, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -4412,7 +4437,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(25, 3), 26.5, rep(28, 3))
+temperature_pattern <- c(rep(25, 3), rep(28, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -4583,6 +4608,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_nut_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -4666,6 +4692,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_nut_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -4748,6 +4775,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species_nut_2 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -4816,7 +4844,7 @@ env_data_1 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(18, 3), 19, rep(20, 3))
+temperature_pattern <- c(rep(18, 3), rep(20, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -4866,7 +4894,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 3), 23, rep(24, 3))
+temperature_pattern <- c(rep(22, 3), rep(24, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -4913,7 +4941,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(26, 3), 27, rep(28, 3))
+temperature_pattern <- c(rep(26, 3), rep(28, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -5083,6 +5111,7 @@ RD_2sp
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_2spp <- RD_2species_nut_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -5166,6 +5195,7 @@ RD_3sp  <- dissimilarity_3sp_plot + divergence_3sp_plot
 
 ### Calculate the composition with the highest response divergence across the 3 combinations
 summary_RD_3spp <- RD_3species_nut_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -5248,6 +5278,7 @@ RD_4sp  <- dissimilarity_4sp_plot + divergence_4sp_plot
 
 ### Calculate the composition with the highest response divergence across the 4 combinations
 summary_RD_4spp <- RD_4species_nut_3 %>% dplyr::group_by(composition) %>% 
+  drop_na() %>% 
   mutate(mean_div = mean(divergence)) %>% 
   select(composition, mean_div, richness) %>% 
   distinct(composition, .keep_all = TRUE)
@@ -5299,16 +5330,28 @@ unique_values_nut_3 %>% filter(richness == 2) %>% drop_na() %>%
 ```{r}
 
 df_total <- rbind(mag_1, mag_2, mag_3, fluct_1, fluct_2, fluct_3, nut_1, nut_2, nut_3)
+names(df_total)
+# See how to bind also potential_RD 
+ names(potential_RD)
+ 
+ potential_RD <- potential_RD %>% rename(potential_dissimilarity = dissimilarity,
+                                         potential_divergence = divergence)
+ 
+df_total_1 <- merge(df_total, potential_RD, by = c("composition", "richness", "species"), all.x = TRUE)
+
+write.csv(df_total_1, here("big_table.csv"), row.names = FALSE, quote = FALSE)
 
 ```
 
 
 ```{r}
-unique_values_total_df <- df_total %>%
+unique_values_total_df <- df_total_1 %>%
   distinct(treatment, composition, dissimilarity, divergence, .keep_all = TRUE)
 
-mag_1 %>% filter(richness == 2) %>% 
-  ggplot(aes(x = treatment, y = divergence)) +
+
+
+unique_values_total_df %>% filter(richness == 2) %>% 
+  ggplot(aes(x = potential_divergence, y = divergence)) +
   geom_point(size = 1.5) +
   geom_text(aes(label = composition), vjust = -0.5, size = 4) +
   theme_bw() 
