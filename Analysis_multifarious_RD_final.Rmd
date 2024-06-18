@@ -764,7 +764,7 @@ Now we calculate RD with known direction of environmental change, i.e. the ones 
 
 - fluctuating temperature x 3 fixed nutrients = 9 treatments
 
-## Magnitude of T change - 1
+y## Magnitude of T change - 1
 - first fluctuation ranges are going to be 18-22, 22-26, and 24 - 28. Temperature stays at the lower end of the range (i.e. 18C) for 3 days, it increases over 24h and stays at the higher end for 3 days.
 
 
@@ -794,7 +794,7 @@ temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 env_data_1$temperature <- temperature_pattern
 
 # Set nutrients levels for each time point
-env_data_1$nutrients <- rep(c(0.01, 0.75, 3), each = total_days)
+env_data_1$nutrients <- rep(c(0.01, 0.75, 1.25), each = total_days)
 # Create a unique identifier for each combination of temperature and nutrient levels
 env_data_1$treatment <- paste0("Tmp_18_21", "_Nut", env_data_1$nutrients)
 
@@ -835,7 +835,7 @@ env_data_2 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(22, 3), rep(25, 3))
+temperature_pattern <- c(rep(21, 3), rep(24, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -843,7 +843,7 @@ temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 env_data_2$temperature <- temperature_pattern
 
 # Set nutrients levels for each time point
-env_data_2$nutrients <- rep(c(0.01, 0.75, 3), each = total_days)
+env_data_2$nutrients <- rep(c(0.01, 0.75, 1.25), each = total_days)
 env_data_2$treatment <- paste0("Tmp_22_25", "_Nut", env_data_2$nutrients)
 
 # Plot temperature and nutrient level over time
@@ -881,7 +881,7 @@ env_data_3 <- data.frame(
 )
 
 # Set temperature values based on the description
-temperature_pattern <- c(rep(25, 3), rep(28, 3))
+temperature_pattern <- c(rep(24, 3), rep(27, 3))
 temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 
 # Assign the temperature pattern to the temperature column for all nutrient levels
@@ -889,7 +889,7 @@ temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 env_data_3$temperature <- temperature_pattern
 
 # Set nutrients levels for each time point
-env_data_3$nutrients <- rep(c(0.01, 0.75, 3), each = total_days)
+env_data_3$nutrients <- rep(c(0.01, 0.75, 2.5), each = total_days)
 env_data_3$treatment <- paste0("Tmp_25_28", "_Nut", env_data_3$nutrients)
 # Plot temperature and nutrient level over time
 # Plot temperature over time
@@ -1292,7 +1292,7 @@ library(ggrepel)
 
 #write.csv(mag_1,"final_scenario_2.csv")
 
-mag_1<- read_csv("final_scenario_2.csv")
+#mag_1<- read_csv("final_scenario_2.csv")
 #View(mag_1)
 
 selection<-mag_1[!is.na(mag_1$divergence),]
