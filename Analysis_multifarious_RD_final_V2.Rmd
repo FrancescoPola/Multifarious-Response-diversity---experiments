@@ -1213,8 +1213,8 @@ plot<-ggplot(data=pred_slice,aes(x=temperature,y=prediction,colour=species))+
 }
 
 n_1<-get_check_plot(0.01)
-n_2<-get_check_plot(0.75)
-n_5<-get_check_plot(2)
+n_2<-get_check_plot(0.35)
+n_5<-get_check_plot(0.75)
 
 
 # Check divergence levels
@@ -1223,15 +1223,6 @@ n_5<-get_check_plot(2)
 n_1+mean_plot
 
 
-n_5_div<-ggplot(selection_final_mean%>%filter(treatment==	
-"Tmp_25_28_Nut5"),aes(x=richness,y=mean_divergence,label=composition))+
-  geom_point()+
-  theme_bw()+
-  facet_wrap(~treatment)+
-  geom_text_repel(size = 2,max.overlaps = 20)
-
-n_5+all_comm_plot
-n_2+all_comm_plot
 
 ```
 
@@ -1285,94 +1276,6 @@ dn_1+mean_plot
 dn_2+mean_plot
 
 
-```
-
-#Get starting densities
-
-```{r}
-
-
-
-new_data <- expand_grid(temperature = seq(18, 28, by= 0.02),
-                        nutrients = c(0.01,0.35,0.75))
-
-nested_gams_K <- dd_r_K %>% 
-  nest(cols =-species) %>% 
-  mutate(
-    gams_K = map(cols, ~ gam(CarryingCapacity ~ te(temperature, nutrients, k = c(5, 5)),
-                           data = .x,
-                           method = "REML")),
-    predicted_K = map(gams_K, ~ predict(.x, newdata = new_data))
-  )
-
-# Get gams coefficients
-coeff_K <- nested_gams_K %>% 
-  mutate(coefs = map(gams_K, tidy, conf.int = TRUE)) %>% 
-  unnest(coefs) %>% 
-  dplyr::select(c('species', 'term', 'p.value'))
-
-
-
-# Creating the dataset with the 2 columns as described above
-predicted_K <- nested_gams_K %>% unnest(predicted_K)
-rates_K <- cbind(new_data, predicted_K[, c(1,4)])
-rates_K <- rates_K %>%
-  relocate(species, temperature, nutrients, predicted_K)
-
-ggplot(data=filter(rates_K,nutrients==0.35))+
-  geom_line(aes(x=temperature,y=predicted_K,color=species))
-
-K_df<-expand.grid(nutrients=c(0.01,0.35,0.75),species=unique(rates_K$species))
-K_df<-cbind(K_df,K_mean=rep(0))
-
-
-for(i in 1:nrow(K_df)){
-    K_df[i,3]<-mean(filter(rates_K,nutrients==K_df[i,1],species==K_df[i,2])$predicted_K)
-    
-}
-
-K_df<-filter(K_df,species!="Tetrahymena")
-
-count_ciliates <- read_delim("~/Desktop/Studium Til/Msc/count_ciliates.csv", 
-    delim = ";", escape_double = FALSE, trim_ws = TRUE)
-
-count_ciliates<-count_ciliates[order(count_ciliates$species),]
-
-K_df<-K_df[order(K_df$species),]
-
-K_df<-cbind(K_df,count=count_ciliates$count)
-
-## get 25% of capacity
-
-K_df<-mutate(K_df,req_num=K_mean*25*0.08)
-
-## required volume for 10%
-
-K_df<-mutate(K_df,req_vol=req_num/count)
-
-df_richness4<-data.frame(c1=c("Spirostomum","Colpidium","Loxocephalus","Paramecium"),c2=c("Colpidium","Loxocephalus","Paramecium","Dexiostoma"),c3=c("Colpidium","Spirostomum","Paramecium","Dexiostoma"),c4=c("Colpidium","Spirostomum","Loxocephalus","Dexiostoma"),c5=c("Paramecium","Spirostomum","Loxocephalus","Dexiostoma"))
-
-r_4<-t(df_richness4)
-df_richness4<-rbind(r_4,r_4)
-df_richness4<-rbind(df_richness4,r_4)
-
-nutrients<-append(rep(0.01,5),rep(0.35,5))
-nutrients<-append(nutrients,rep(0.75,5))
-
-df_richness4<-cbind(df_richness4,nutrients=nutrients)
-
-tot_vol<-c()
-for(i in 1:nrow(df_richness4)){
-  sele<-filter(K_df,nutrients==df_richness4[i,5],
-               species %in% df_richness4[i,1:4])
-  tot_vol<-append(tot_vol,sum(sele$req_vol))
-}
-
-df_richness4<-cbind(df_richness4,tot_vol=tot_vol)
-
-#remove two combinations not used in experiment
-
-df_richness4<-df_richness4[c(1,3,4,6,7,8,9,10,11,12,13,14,15),]
 ```
 
 
