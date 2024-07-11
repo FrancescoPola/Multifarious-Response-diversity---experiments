@@ -583,7 +583,7 @@ temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 env_data_1$temperature <- temperature_pattern
 
 # Set nutrients levels for each time point
-env_data_1$nutrients <- rep(c(0.01, 0.75, 3), each = total_days)
+env_data_1$nutrients <- rep(c(0.01, 0.35, 0.75), each = total_days)
 # Create a unique identifier for each combination of temperature and nutrient levels
 env_data_1$treatment <- paste0("Tmp_18_21", "_Nut", env_data_1$nutrients)
 
@@ -632,7 +632,7 @@ temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 env_data_2$temperature <- temperature_pattern
 
 # Set nutrients levels for each time point
-env_data_2$nutrients <- rep(c(0.01, 0.75, 3), each = total_days)
+env_data_2$nutrients <- rep(c(0.01, 0.35, 0.75), each = total_days)
 env_data_2$treatment <- paste0("Tmp_22_25", "_Nut", env_data_2$nutrients)
 
 # Plot temperature and nutrient level over time
@@ -678,7 +678,7 @@ temperature_pattern <- rep(temperature_pattern, length.out = total_days)
 env_data_3$temperature <- temperature_pattern
 
 # Set nutrients levels for each time point
-env_data_3$nutrients <- rep(c(0.01, 0.75, 3), each = total_days)
+env_data_3$nutrients <- rep(c(0.01, 0.35, 0.75), each = total_days)
 env_data_3$treatment <- paste0("Tmp_25_28", "_Nut", env_data_3$nutrients)
 # Plot temperature and nutrient level over time
 # Plot temperature over time
@@ -847,8 +847,7 @@ summary_RD_2spp <- RD_2species_mag_1 %>% dplyr::group_by(composition) %>%
   distinct(composition, .keep_all = TRUE)
 
 
-RD_2species_mag_1 <- RD_2species_mag_1 %>% 
-  filter(dissimilarity == unique(dissimilarity))
+
   
 
 ```
@@ -1081,7 +1080,7 @@ library(ggrepel)
 
 #write.csv(mag_1,"final_scenario_2.csv")
 
-mag_1<- read_csv("final_scenario_2.csv")
+#mag_1<- read_csv("final_scenario_2.csv")
 #View(mag_1)
 
 selection<-mag_1[!is.na(mag_1$divergence),]
@@ -1114,6 +1113,7 @@ grouped_dd <- sel_means %>%
 max_row <- grouped_dd %>%
   filter(mean_divergence == max(mean_divergence))
 
+
 # Find the row with the minimum mean_divergence
 min_row <- grouped_dd %>%
   filter(mean_divergence == min(mean_divergence))
@@ -1126,26 +1126,15 @@ closest_to_mean_row <- grouped_dd %>%
   filter(abs(mean_divergence - mean(mean_divergence)) == min(abs(mean_divergence - mean(mean_divergence))))
 
 
-# Find median value
-median_row <- grouped_dd %>%
-  filter(abs(mean_divergence - median(mean_divergence)) == min(abs(mean_divergence - median(mean_divergence))))
 
 
-
-# Combine the results into a single dataframe
-selection_final_mean <- bind_rows(max_row, min_row, closest_to_mean_row)
-
-selection_final_median <- bind_rows(max_row, min_row, median_row)
-
-#random sample if double entries (only for selection_final_mean)
-selection_mean<-data.frame(treatment=character(),richness=numeric(),composition=character(),mean_divergence=numeric())
+selection_mean<-rbind(max_row,min_row,closest_to_mean_row)
 
 
 
 
-
-set.seed(27032024)
-selection_mean <- selection_final_mean %>%
+set.seed(08052024)
+selection_mean <- selection_mean %>%
   group_by(treatment, richness, mean_divergence) %>%
   slice_sample(n = 1) %>%
   ungroup()
@@ -1165,18 +1154,6 @@ mean_plot<-ggplot(selection_mean,aes(x=richness,y=mean_divergence,label=composit
   labs(title = "criteria: mean") 
 
 
-median_plot<-ggplot(selection_final_median,aes(x=richness,y=mean_divergence,label=composition))+
-  geom_point()+
-  #geom_smooth(method="lm")+
-  theme_bw()+
-  facet_wrap(~treatment)+
-  geom_text_repel(size = 2,max.overlaps = 100)+
-  labs(title = "criteria: median") 
-
-
-mean_plot+median_plot+all_comm_plot
-
-all_comm_plot
 ```
 
 
@@ -1236,8 +1213,8 @@ plot<-ggplot(data=pred_slice,aes(x=temperature,y=prediction,colour=species))+
 }
 
 n_1<-get_check_plot(0.01)
-n_2<-get_check_plot(0.75)
-n_5<-get_check_plot(3)
+n_2<-get_check_plot(0.35)
+n_5<-get_check_plot(0.75)
 
 
 # Check divergence levels
@@ -1246,15 +1223,6 @@ n_5<-get_check_plot(3)
 n_1+mean_plot
 
 
-n_5_div<-ggplot(selection_final_mean%>%filter(treatment==	
-"Tmp_25_28_Nut5"),aes(x=richness,y=mean_divergence,label=composition))+
-  geom_point()+
-  theme_bw()+
-  facet_wrap(~treatment)+
-  geom_text_repel(size = 2,max.overlaps = 20)
-
-n_5+all_comm_plot
-n_2+all_comm_plot
 
 ```
 
@@ -1300,7 +1268,7 @@ partial_Nut2<-ggplot(data=partial_df,aes(x=temperature,y=pd,color=species))+
 
 dn_1<-get_deriv(0.01,sp=c("Colpidium","Spirostomum","Paramecium","Dexiostoma","Loxocephalus"))
 dn_2<-get_deriv(0.75,sp=c("Colpidium","Spirostomum","Paramecium","Dexiostoma","Loxocephalus"))
-dn_5<-get_deriv(3,sp=c("Colpidium","Spirostomum","Paramecium","Dexiostoma","Loxocephalus"))
+dn_5<-get_deriv(0.35,sp=c("Colpidium","Spirostomum","Paramecium","Dexiostoma","Loxocephalus"))
 
 dn_5+all_comm_plot
 dn_5+mean_plot
@@ -1309,7 +1277,6 @@ dn_2+mean_plot
 
 
 ```
-
 
 
 # Figures
@@ -1383,6 +1350,8 @@ single_plot<-ggplot(selection_mean_single,aes(x=richness,y=mean_divergence,label
         strip.text.y = element_text(margin = margin(l = 10)),
         axis.title.y = element_text(margin = margin(r = 15)),
         axis.title.x = element_text(margin = margin(t = 15)))
+
+write.csv(selection_mean,"selection_mean.csv")
 ```
 
 ##Figure 1C
@@ -1390,7 +1359,8 @@ single_plot<-ggplot(selection_mean_single,aes(x=richness,y=mean_divergence,label
 ```{r}
 # get derivatives 
 
-
+library(RColorBrewer)
+color_sp<-brewer.pal(5, "Dark2")
 
 get_deriv_adj<-function(nutrient_level,sp,t_range,c){
   env_range<-data.frame(temperature=seq(18,28,by=0.01))
@@ -1452,6 +1422,8 @@ dn_1_LS <- dn_1_LS +
 
 
 fig1C<-ggarrange(dn_1_LS+ylab("directional derivative"),dn_1_CD+xlab("temperature [°C]"),dn_1_DS,ncol=3,nrow=1,align="h")
+
+fig1C2<-ggarrange(dn_1_LS,dn_1_CD+ylab("directional derivative"),dn_1_DS+xlab("temperature [°C]"),ncol=1,nrow=3,align="v")
 
 fig_plot<-get_deriv_adj(0.01,sp=c("Colpidium","Spirostomum","Dexiostoma","Loxocephalus"),t_range=c(25,28),c=color_sp[c(1,2,3,5)])
 
@@ -1632,6 +1604,9 @@ count_sp<-data.frame(Colpidium=sum(strings=="C"),
              Paramecium=sum(strings=="P"),
              Loxocephalus=sum(strings=="L"))
 
+
+
+dd_spiro<-filter(dd,species=="Loxocephalus",day==1)
 
 ```
 
