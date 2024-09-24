@@ -57,7 +57,7 @@ K will be calculated as the highest population biomass for each population durin
 
 Let's start loading the data set and creating a subset for calculating r
 ```{r results='hide', echo=FALSE, warning=FALSE}
-dd <- read.csv(here("Data/data_reaction_norms.csv"))
+#dd <- read.csv(here("Data/data_reaction_norms.csv"))
 names(dd)
 dd1 <- dd %>% select("species", "temperature", "nutrients", "sample_ID", "density", "day")
 # create a data frame with only the days of exponential growth (first 6 days)

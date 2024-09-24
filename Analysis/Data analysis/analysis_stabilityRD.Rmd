@@ -1,0 +1,1457 @@
+---
+title: "analysis_stabilityRD"
+output: html_document
+date: "2024-09-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r cars}
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+library(rEDM)
+library("parallel")
+library(pracma)
+library(purrr)
+library(signal)
+library(ggfortify)
+library(data.table)
+library(patchwork)
+```
+
+# load, combine and curate dataset
+```{r pressure, echo=FALSE}
+new_selection_mean <- read_csv("new_selection_mean_simple_div.csv")
+load("~/Documents/GitHub/Multifarious-Response-diversity---experiments/Analysis/Data analysis/dens_biomass_mono.RData")
+dens_mono<-dens
+load("~/Documents/GitHub/Multifarious-Response-diversity---experiments/Analysis/Data analysis/dens_biomass_poly.RData")
+
+#create a day variable from the date variable
+earliest_date<-min(dens$date)
+days_since_earliest<-as.numeric(dens$date-earliest_date)+1
+dens<-dens%>%mutate(day=days_since_earliest,richness=as.factor(richness))
+
+#create a day variable from the date variable for mono_culture
+date_format = "%Y-%m-%d"
+
+dens_mono<-dens_mono%>%mutate(date=as.Date(date))
+
+tcl<-dplyr::filter(dens_mono,species_initial%in%c("T","C","L"))
+tcl<-mutate(tcl,sample_group="tcl")
+earliest_date <- min(tcl$date)
+days_since_earliest <- as.numeric(tcl$date - earliest_date) + 1
+tcl<-tcl%>%mutate(day=days_since_earliest)
+
+ds<-dplyr::filter(dens_mono,species_initial%in%c("D","S"))
+ds<-mutate(ds,sample_group="ds")
+earliest_date <- min(ds$date)
+days_since_earliest <- as.numeric(ds$date - earliest_date) + 1
+ds<-ds%>%mutate(day=days_since_earliest)
+
+p<-dplyr::filter(dens_mono,species_initial%in%c("P"))
+p<-mutate(p,sample_group="p")
+earliest_date <- min(p$date)
+days_since_earliest <- as.numeric(p$date - earliest_date) + 1
+p<-p%>%mutate(day=days_since_earliest)
+
+dens_mono<-rbind(tcl,ds,p)
+
+
+# complete time series 
+##  unfortunate steps since sample_ID variable in loaded dens data frame is wrong
+#dens<-dens%>%mutate(sample_ID=paste(composition,temperature,nutrients,microcosm,sep="_"))
+fill_dd<-expand.grid(sample_ID=unique(dens$sample_ID),day=unique(dens$day))
+
+# get complete ts (26 days * 243 microcosms)
+dens_complete<-full_join(fill_dd,dens,join_by(sample_ID,day))
+dens_complete<-dens_complete%>%separate(sample_ID, into = c("composition", "temperature", "nutrients", "microcosm"), sep = "_")
+dens_complete$biomass[is.na(dens_complete$biomass)]<-0
+dens_complete$mean.dens.ml[is.na(dens_complete$mean.dens.ml)]<-0
+
+
+
+
+# get average density and biomass; and also CV
+dens_aggr<-dens_complete%>%group_by(composition,nutrients,temperature,microcosm)%>%summarise(
+  mean_dens=mean(mean.dens.ml),
+  mean_biom=mean(biomass),
+  CV=sd(biomass)/mean(biomass),
+  CV_dens=sd(mean.dens.ml)/mean(mean.dens.ml)
+)
+
+dens_aggr_mono<-dens_mono%>%group_by(species_initial,nutrients,temperature,microcosm)%>%summarise(
+  mean_dens=mean(mean.dens.ml),
+  mean_biom=mean(biomass),
+  CV=sd(biomass)/mean(biomass)
+)
+
+
+# 
+dens_aggr<-dens_aggr%>%mutate(nutrients=as.character(nutrients),
+                              temperature=paste0(temperature," °C"),
+                              nutrients=paste0(nutrients," g/L"))
+dens_aggr<-full_join(new_selection_mean,dens_aggr,by=join_by(composition,nutrients,temperature))
+```
+# Exploration
+## First explorative plots 
+```{r}
+plot_time_series<-ggplot(data=dens,aes(x=day,y=biomass,colour = richness))+
+  geom_point()+
+  geom_smooth()+
+  theme_bw()+
+  facet_grid(temperature~nutrients,scales="free_y")
+
+
+plot_RD_CV<-ggplot(data=dens_aggr,aes(x=mean_divergence,y=log10(1/CV),color=as.factor(richness)))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_RD_CV_treatment<-ggplot(data=dens_aggr,aes(x=mean_divergence,y=log10(1/CV)))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  facet_grid(temperature~nutrients)
+
+## effects of temperature, nutrients and richness
+
+plot_T<-ggplot(data=dens_aggr,aes(y=log10(1/CV),x=temperature))+
+  geom_boxplot()+
+  geom_jitter()
+plot_N<-ggplot(data=dens_aggr,aes(y=log10(1/CV),x=nutrients))+
+  geom_boxplot()+
+  geom_jitter()
+plot_R<-ggplot(data=dens_aggr,aes(y=log10(1/CV),x=as.factor(richness)))+
+  geom_boxplot()+
+  geom_jitter()
+
+## look at monoculture
+
+plot_mono_ts<-ggplot(data=dens_mono,aes(x=day,y=biomass,color=species_initial))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_grid(temperature~nutrients)
+
+
+plot_T_mono<-ggplot(data=dens_aggr_mono,aes(y=1/CV,x=as.factor(temperature)))+
+  geom_boxplot()+
+  geom_jitter()
+plot_N_mono<-ggplot(data=dens_aggr_mono,aes(y=1/CV,x=as.factor(nutrients)))+
+  geom_boxplot()+
+  geom_jitter()
+
+# compare
+grid.arrange(plot_T_mono,plot_T,plot_N_mono,plot_N, ncol=2 )
+grid.arrange(plot_N_mono,plot_N, ncol=2)
+
+#look at dissimilarity
+plot_dissim_CV<-ggplot(data=dens_aggr,aes(x=mean_dissimilarity,y=log10(1/CV),color=as.factor(richness)))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_DV_dissim<-ggplot(data=dens_aggr,aes(x=mean_dissimilarity,y=mean_divergence))+
+  geom_point()
+
+plot_DV_alt_CV<-ggplot(data=dens_aggr,aes(x=mean_divergence_alt,y=log10(1/CV),color=as.factor(richness)))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+#look at density 
+
+
+plot_dens_biom<-ggplot(data=dens_aggr,aes(x=mean_biom,y=mean_dens))+
+  geom_point()
+
+
+
+```
+
+## Identification plots
+### classification of noise
+```{r}
+dd_all_pred<-read.csv("morph_dd_pred.csv")
+dd_all_pred_nonoise<-read.csv("morph_dd_pred_nonoise.csv")
+
+names(dd_all_pred_nonoise)[names(dd_all_pred_nonoise)=="predict_spec"]<-"pred_nonoise"
+dd_all_pred<-full_join(dd_all_pred,select(dd_all_pred_nonoise,id_new,pred_nonoise),join_by(id_new))
+
+hist_classification <- ggplot(dd_all_pred) +
+  geom_histogram(aes(x = pred_nonoise, fill = "Without noise"), stat = "count") +
+  geom_histogram(aes(x = predict_spec, fill = "With noise"), stat = "count") +
+  facet_wrap(~composition, scale = "free") +
+  scale_fill_manual(name = "with/without noise", values = c("Without noise" = "black", "With noise" = "red3"))
+
+
+dd_percent_noise<-dd_all_pred%>%mutate(noise = predict_spec=="noise")
+dd_percent_noise<-dd_percent_noise%>%group_by(composition,nutrients,temperature)%>%summarise(
+                                                                       percent_noise= sum(noise)/length(noise))
+
+dd_percent_noise<-dd_percent_noise%>%mutate(nutrients=as.character(nutrients),
+                              temperature=paste0(temperature," °C"),
+                              nutrients=paste0(nutrients," g/L"))
+
+hist_noise<-ggplot(data=dd_percent_noise)+
+  geom_histogram(aes(x=percent_noise))
+
+dist_noise<-ggplot(data=dd_percent_noise)+
+  geom_boxplot(aes(y=percent_noise,x=temperature))+
+  geom_jitter(aes(y=percent_noise,x=temperature))+
+  facet_wrap(~nutrients)
+
+## more noise classified in low nutrient environment -> different morphology and/or lower total numbers and thus more power to stat outliers
+## maybe unbalanced training set of classifier -> check later  by using smaller training set
+
+
+```
+
+### add biomass to identification data frame 
+```{r}
+load("~/Documents/GitHub/Multifarious-Response-diversity---experiments/Analysis/Data analysis/ciliate_traits.Rdata")
+
+
+# needs to have id_new variable
+ciliate_traits <- ciliate_traits %>%
+  mutate(
+    # Remove dots from the date
+    cleaned_date = gsub("\\.", "", date),
+    # Extract the part of id after the underscore
+    id_suffix = sub(".*_(.*)", "\\1", id),
+    # Combine cleaned_date, id_suffix, and species_initial into a new variable
+    id_new = paste0(cleaned_date, id_suffix, composition)
+  ) %>%
+  # Optionally, remove the intermediate columns to clean up
+  select(-cleaned_date, -id_suffix,-new_id)
+
+uniqueN(ciliate_traits$id_new)==nrow(ciliate_traits) # all unique  ;)
+
+
+
+id_dd<-full_join(dd_all_pred,select(ciliate_traits,id_new,biomass),join_by("id_new"))
+
+
+## add day variable
+
+#create a day variable from the date variable
+
+id_dd<-mutate(id_dd,date=as.Date(date,format = "%d.%m.%y"))
+
+earliest_date<-min(id_dd$date)
+days_since_earliest<-as.numeric(id_dd$date-earliest_date)+1
+id_dd<-id_dd%>%mutate(day=days_since_earliest)
+
+#create a summaised df on microcosm level with each species seperate
+# Make sure, that we have n_frames and not N_frames
+names(id_dd)[names(id_dd) == "N_frames"] <- "n_frames"
+
+#extrapolation_factor <- 9.301902  # for 16 x magnification 
+extrapolation_factor <- 9.828125  # for 25 x magnification 
+video_biomass_species <- c( "C", "P", "S","D","L","T")
+
+biomasses <- id_dd %>%
+  group_by( day,temperature,nutrients,sample_ID,composition,pred_nonoise) %>% # group  by xxx
+  summarize(
+    biomass = sum(biomass * n_frames, na.rm = TRUE) / (1 * 125) # if not 3 videos corrections is done below with dens_factor
+  ) %>%
+  mutate(
+    biomass = biomass * extrapolation_factor,
+    )
+
+
+
+dd_ts_id<-biomasses
+
+
+plot_ts<-ggplot(dd_ts_id,aes(x=day,y=biomass,color=pred_nonoise))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_grid(temperature~nutrients,scale="free")
+
+plot_ts_035_18_21<-ggplot(dplyr::filter(dd_ts_id,pred_nonoise!="noise",temperature=="18-21",nutrients==0.35),aes(x=day,y=biomass,color=pred_nonoise))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_wrap(~sample_ID,scale="free")
+
+plot_ts_001_18_21<-ggplot(dplyr::filter(dd_ts_id,pred_nonoise!="noise",temperature=="18-21",nutrients==0.01),aes(x=day,y=biomass,color=pred_nonoise))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_wrap(~sample_ID,scale="free")
+
+plot_ts_075_18_21<-ggplot(dplyr::filter(dd_ts_id,pred_nonoise!="noise",temperature=="18-21",nutrients==0.75),aes(x=day,y=biomass,color=pred_nonoise))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_wrap(~sample_ID,scale="free")
+
+plot_ts_035_25_28<-ggplot(dplyr::filter(dd_ts_id,pred_nonoise!="noise",temperature=="25-28",nutrients==0.35),aes(x=day,y=biomass,color=pred_nonoise))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_wrap(~sample_ID,scale="free")
+
+
+
+```
+
+### exploration with incomplete ts
+
+```{r}
+#### effects of temperature; nutrient and richness, now with complete time series
+incomplete_aggr<-dd_ts_id%>%group_by(composition,nutrients,temperature,sample_ID)%>%summarise(
+  mean_biom=mean(biomass),
+  CV=sd(biomass)/mean(biomass)
+)
+incomplete_aggr<-incomplete_aggr%>%mutate(richness=nchar(composition),
+                                          nutrients=paste0(nutrients," g/L"),
+                                          temperature=paste0(temperature," °C"))
+
+incomplete_aggr<-full_join(new_selection_mean,incomplete_aggr,by=join_by(composition,nutrients,temperature,richness))
+incomplete_aggr<-incomplete_aggr%>%mutate(richness=as.factor(richness))
+
+plot_T_complete<-ggplot(data=incomplete_aggr)+
+  geom_boxplot(aes(y=log10(1/CV),x=temperature))+
+  geom_jitter(aes(y=log10(1/CV),x=temperature))
+
+plot_N_complete<-ggplot(data=incomplete_aggr)+
+  geom_boxplot(aes(y=log10(1/CV),x=nutrients))+
+  geom_jitter(aes(y=log10(1/CV),x=nutrients,color=richness))
+
+plot_R_complete<-ggplot(data=incomplete_aggr)+
+  geom_boxplot(aes(y=log10(1/CV),x=richness))+
+  geom_jitter(aes(y=log10(1/CV),x=richness))
+
+plot_CV_divergence_incomp<-ggplot(incomplete_aggr,aes(x=mean_divergence,y=log10(1/CV),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+```
+
+
+
+### fill missing time points
+```{r}
+
+#fill up missing dates with biomass<-0
+
+fill_dd<-expand.grid(sample_ID=unique(dd_ts_id$sample_ID),day=unique(dd_ts_id$day),pred_nonoise=unique(dd_ts_id$pred_nonoise))
+complete_ts<-full_join(fill_dd,dd_ts_id,join_by(sample_ID,day,pred_nonoise))
+
+complete_ts$biomass[is.na(complete_ts$biomass)]<-0
+complete_ts<-complete_ts%>%mutate(composition=sub("_.*", "", sample_ID))
+complete_ts<-complete_ts %>%
+  mutate(temperature = sapply(strsplit(as.character(sample_ID), "_"), function(x) paste(x[3], x[4], sep = "-")))
+complete_ts<- mutate(complete_ts,nutrients = gsub(".*Nut(.*?)_.*", "\\1", sample_ID))
+
+
+# Now remove wrong combinations of composition and predict_spec / pred_nonoise
+
+complete_ts<- complete_ts %>%
+  rowwise() %>%
+  dplyr::filter(pred_nonoise %in% unlist(strsplit(composition, ""))) %>%
+  ungroup()  
+complete_ts<-mutate(complete_ts,temperature=as.character(temperature),
+                    nutrients=as.character(nutrients),
+                    richness=nchar(composition))
+
+plot_complete_ts<-ggplot(complete_ts,aes(x=day,y=biomass,color=pred_nonoise))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_wrap(~composition,scale="free")
+
+plot_complete_035_25_28<-ggplot(data=dplyr::filter(complete_ts, temperature=="25-28",nutrients=="0.35"),aes(x=day,y=biomass,color=pred_nonoise))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_wrap(~sample_ID,scale="free")
+complete_ts<-mutate(complete_ts,richness=nchar(composition))
+
+plot_complete_biomass_richness<-ggplot(data=complete_ts,aes(y=biomass,x=day,color=as.factor(richness)))+
+  geom_smooth(method="loess")+
+  facet_grid(temperature~nutrients)
+
+
+
+```
+
+##Exploration completed time series
+
+```{r}
+
+
+complete_aggr<-complete_ts%>%group_by(composition,nutrients,temperature,sample_ID)%>%summarise(
+  mean_biom=mean(biomass),
+  CV=sd(biomass)/mean(biomass),
+  sd=sd(biomass),
+  mean=mean(biomass),
+)
+
+
+complete_aggr<-complete_aggr%>%mutate(temperature=paste0(temperature," °C"),
+                                      nutrients=paste0(nutrients," g/L"))
+
+complete_aggr<-full_join(new_selection_mean,complete_aggr,by=join_by(composition,nutrients,temperature))%>%
+  mutate(richness=as.factor(richness))
+
+complete_aggr<-complete_aggr%>%mutate(abs_sum_slope=abs(sum_slopes))
+
+#### effects fidtributions of 1/CV, divergence, dissimilarity
+
+dist_CV_complete<-ggplot(data=complete_aggr,aes(x=log10(1/CV)))+
+  geom_histogram(bins=30)
+
+dist_divergence_complete<-ggplot(data=complete_aggr,aes(x=mean_divergence))+
+  geom_histogram(bins=15)
+
+dist_alt_divergence_complete<-ggplot(data=complete_aggr,aes(x=mean_divergence_alt))+
+  geom_histogram(bins=15)
+
+#too many values with divergence=0
+
+##look at other response diversity
+
+plot_mean_simple_div<-ggplot(data=complete_aggr,aes(x=mean_divergence,y=simple_divergence))+
+  geom_point()
+
+
+
+dist_dissim_complete<-ggplot(data=complete_aggr,aes(x=mean_dissimilarity))+
+  geom_histogram(bins=15)
+
+
+
+plot_divergence_dissimilarity<-ggplot(complete_aggr,aes(x=mean_divergence,y=sqrt(mean_dissimilarity)))+
+  geom_point()+geom_smooth(method="lm")
+
+cor_dd<-distinct(complete_aggr%>%select(mean_divergence,mean_dissimilarity))
+cor_test<-cor.test(cor_dd$mean_divergence, cor_dd$mean_dissimilarity%>%sqrt(), method = "spearman")
+
+plot_divergence_altdiv<-ggplot(complete_aggr,aes(x=mean_divergence,y=mean_divergence_alt))+
+  geom_point()+geom_smooth(method="lm")
+
+
+#### effects of temperature; nutrient and richness, now with complete time series
+
+plot_T_complete<-ggplot(data=complete_aggr)+
+  geom_boxplot(aes(y=1/CV,x=temperature))+
+  geom_jitter(aes(y=1/CV,x=temperature))
+
+plot_N_complete<-ggplot(data=complete_aggr)+
+  geom_boxplot(aes(y=1/CV,x=nutrients))+
+  geom_jitter(aes(y=1/CV,x=nutrients,color=richness))
+
+plot_R_complete<-ggplot(data=complete_aggr)+
+  geom_boxplot(aes(y=1/CV,x=richness))+
+  geom_jitter(aes(y=1/CV,x=richness))
+
+#global CV~divergence
+
+plot_CV_divergence_comp<-ggplot(complete_aggr,aes(x=mean_divergence,y=1/CV, colour = richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_CV_divergence_nut<-ggplot(complete_aggr,aes(x=mean_divergence,y=1/CV,color=nutrients))+
+  geom_point()+
+  geom_smooth(method="lm")
+plot_CV_divergence_temp<-ggplot(complete_aggr,aes(x=mean_divergence,y=log10(1/CV),color=temperature))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_CV_divergence_alt_comp<-ggplot(complete_aggr,aes(x=mean_divergence_alt,y=log10(1/CV),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+### simple divergence
+
+plot_CV_simple_divergence<-ggplot(complete_aggr,aes(x=simple_divergence,y=1/CV))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_cor_simple_mean_div<-ggplot(complete_aggr,aes(x=mean_divergence,y=simple_divergence,color=richness))+
+  geom_point()+ geom_abline(slope = 1, intercept = 0, color = "black") 
+
+
+
+
+####### response symmetry
+
+plot_CV_abs_sum_slope<-ggplot(complete_aggr,aes(x=log10(abs_sum_slope),y=1/CV))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_cor_abs_sum_div<-ggplot(complete_aggr,aes(x=mean_divergence,y=log10(abs_sum_slope),color=richness))+
+  geom_point()
+###
+
+
+#see smaller slope with higher richness -> divergence does only consider the two most "extreme" species in terms of their performance change -> interaction between richness and divergence
+
+#global CV~dissimilatiy
+
+plot_CV_dissim_comp<-ggplot(complete_aggr,aes(x=mean_dissimilarity,y=1/CV))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+
+plot_CV_split_comp<-ggplot(complete_aggr,aes(x=mean_divergence,y=1/CV))+
+  geom_point(aes(color=richness))+
+  geom_smooth(method="lm")+
+  facet_grid(temperature~nutrients,scale="free")
+
+
+
+
+plot_CV_split_comp_dissim<-ggplot(complete_aggr,aes(x=mean_dissimilarity%>%sqrt(),y=log10(1/CV)))+
+  geom_point(aes(color=richness))+
+  geom_smooth(method="lm")+
+  facet_grid(temperature~nutrients,scale="free")
+
+
+
+
+
+```
+##Exploration with density
+
+```{r}
+load("~/Desktop/Til/community_exp_new/dens_biomass_poly.RData")
+
+#create a day variable from the date variable
+earliest_date<-min(dens$date)
+days_since_earliest<-as.numeric(dens$date-earliest_date)+1
+dens<-dens%>%mutate(day=days_since_earliest,richness=as.factor(richness))
+dens<-dens%>%dplyr::filter(!is.na(sample_ID))
+#create a day variable from the date variable for mono_culture
+date_format = "%Y-%m-%d"
+
+##  unfortunate steps since sample_ID variable in loaded dens data frame is wrong
+#dens<-dens%>%mutate(sample_ID=paste(composition,temperature,nutrients,microcosm,sep="_"))
+fill_dd<-expand.grid(sample_ID=unique(dens$sample_ID),day=unique(dens$day))
+fill_dd<-fill_dd%>%dplyr::filter(!is.na(sample_ID))
+# get complete ts (26 days * 243 microcosms)
+dens_complete<-dplyr::full_join(fill_dd,dens,join_by(sample_ID,day))
+
+dens_complete$biomass[is.na(dens_complete$biomass)]<-0
+dens_complete$mean.dens.ml[is.na(dens_complete$mean.dens.ml)]<-0
+
+# fill out some NAs
+dens_complete<-dens_complete%>%mutate(composition=sub("_.*", "", sample_ID))
+dens_complete<-dens_complete %>%
+  mutate(temperature = sapply(strsplit(as.character(sample_ID), "_"), function(x) paste(x[3], x[4], sep = "-")))
+dens_complete<- mutate(dens_complete,nutrients = gsub(".*Nut(.*?)_.*", "\\1", sample_ID))
+
+plot_dens_ts<-ggplot(data=dens_complete,aes(x=day,y=mean.dens.ml,color=composition))+
+  geom_point()+
+  facet_grid(temperature~nutrients)
+
+dens_aggr<-dens_complete%>%group_by(composition,nutrients,temperature,sample_ID)%>%summarise(
+  mean_biom=mean(biomass),
+  CV=sd(biomass)/mean(biomass),
+  mean_dens=mean(mean.dens.ml),
+  CV_dens=sd(mean.dens.ml)/mean(mean.dens.ml)
+)
+
+
+dens_aggr<-dens_aggr%>%mutate(temperature=paste0(temperature," °C"),
+                                      nutrients=paste0(nutrients," g/L"))
+
+dens_aggr<-full_join(new_selection_mean,dens_aggr,by=join_by(composition,nutrients,temperature))%>%
+  mutate(richness=as.factor(richness))
+
+dens_CV_diver<-ggplot(data=dens_aggr,aes(x=mean_divergence,y=log10(1/CV_dens),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+dens_CV_diver<-ggplot(data=dens_aggr,aes(x=mean_dissimilarity,y=log10(1/CV_dens),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+## without complete time series
+
+dens_aggr_incomplete<-dens%>%group_by(composition,nutrients,temperature,sample_ID)%>%summarise(
+  mean_biom=mean(biomass),
+  CV=sd(biomass)/mean(biomass),
+  mean_dens=mean(mean.dens.ml),
+  CV_dens=sd(mean.dens.ml)/mean(mean.dens.ml)
+)
+
+dens_aggr_incomplete<-dens_aggr_incomplete%>%mutate(temperature=paste0(temperature," °C"),
+                                      nutrients=paste0(nutrients," g/L"))
+
+dens_aggr_incomplete<-full_join(new_selection_mean,dens_aggr_incomplete,by=join_by(composition,nutrients,temperature))%>%
+  mutate(richness=as.factor(richness))
+
+dens_CV_diver_incomp<-ggplot(data=dens_aggr_incomplete%>%dplyr::filter(nutrients!="0.01 g/L"),aes(x=mean_divergence,y=log10(1/CV),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+dens_CV_diver_incomp<-ggplot(data=dens_aggr_incomplete,aes(x=mean_dissimilarity,y=log10(1/CV),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+```
+
+
+
+# Species interactions
+## functions by Uriah
+```{r}
+
+# change libSize accordingly (number of time points - max(E) )
+
+best_E_fct <- function(data, target, interactor){
+  max1 <- c()
+  max2 <- c()
+  for(i in 2:5){
+    ccm_out <- CCM(dataFrame = data, target = target, column = interactor,libSizes = c(26-i,26-i,1), Tp = -1, E = i, sample = 100)
+    # max1[i-1] <- ccm_out[1,2]
+    max2[i-1] <- ccm_out[1,3]
+  }
+  df <- data.frame(target=target,
+                   interactor=interactor,
+                   Best_E = which.max(max2)+1)
+  return(df)
+}
+
+CCM_convergence_test <- function(data, target, interactor, libsize, step=3, E, lmin=NULL, lmax=NULL, maxlag=4){
+  seeds <- sample(10000:99999, 100, replace = F)
+  if(is.null(lmin)){
+    lmin <- floor(nrow(data)*0.2)
+  }
+  lmin <- max(lmin,E+2)
+  
+  if(is.null(lmax)){
+    #lmax <- floor(nrow(data)*0.8) - (maxlag+E-2) 
+    lmax <- nrow(data) - (maxlag+E-2)
+  }
+  
+  rhos_bool <- sapply(seeds, function(seed){
+    ccm_out <- CCM(dataFrame = data, target = target, column = interactor,
+                   libSizes = paste(lmin, lmax, lmax-lmin), Tp = 0, E = E,
+                   sample = 1, seed = seed)
+    rho_lmin <- ccm_out[1,3]
+    rho_lmax <- ccm_out[2,3]
+    return(rho_lmin >= rho_lmax)
+  })
+  
+  pvalue <- sum(rhos_bool)/length(rhos_bool)
+}
+
+CCM_significance <- function(data, target, interactor, libsize, step=3, E, surrogateMethod="seasonal", T_period=8, rho){
+  ts_int <- unlist(data[,interactor])
+  ts_tar <- unlist(data[,target])
+  if(interactor!="norm_sampleT") {
+    surr_interactor = SurrogateData(ts_int, method = surrogateMethod, T_period = T_period,
+                                    num_surr = 1000, alpha = 3)
+  } else {
+    surr_interactor = SurrogateData(ts_int, method = "random_shuffle",
+                                    num_surr = 1000, alpha = 3)      
+  }
+  
+  rho_surr <- data.frame(interactor_rho = numeric(1000))
+  
+  interactor_data = as.data.frame(cbind(data[,1], ts_tar, surr_interactor))
+  names(interactor_data) = c("time", target, paste("T", as.character(seq(1, 1000)),	sep = ""))
+  
+  sapply(1:1000,function(i){
+    targetCol = paste("T", i, sep = "") 
+    ccm_out = CCM(dataFrame = interactor_data, E = E, Tp = 0, columns = target,
+                  target = targetCol, libSizes = paste(libsize, libsize, step), sample = 1)
+    col = paste(target, ":", targetCol, sep = "")
+    rho_surr$interactor_rho[i] = ccm_out[1, col]
+  })
+  
+  significance <- 1 - ecdf(rho_surr$interactor_rho)(rho)
+  return(significance)
+}
+```
+
+## SMap
+```{r}
+
+
+
+
+#create temperature time series patterns
+pattern <- c(18, 18, 18, 19.5, 21, 21, 21, 19.5)
+T1<-rep(pattern, length.out = 60)
+T1<-data.frame(sample_T=T1[unique(complete_ts$day)+1],day=unique(complete_ts$day))
+
+pattern <- c(22, 22, 22, 23.5, 25, 25, 25, 23.5)
+T2<-rep(pattern, length.out = 60)
+T2<-data.frame(sample_T=T2[unique(complete_ts$day)+1],day=unique(complete_ts$day))
+
+pattern <- c(25, 25, 25, 26.5, 28, 28, 28, 26.5)
+T3<-rep(pattern, length.out = 60)
+T3<-data.frame(sample_T=T3[unique(complete_ts$day)+1],day=unique(complete_ts$day))
+
+
+## add temperature time series and perform interpolation and noramlization
+## note that total time series goes from sampling day 1 (second day of the experiment) until the 59th day (here 58)-> 1:58
+df_S<-split(complete_ts,complete_ts$sample_ID)
+df_S<-mclapply(df_S,function(df){
+  if(unique(df$temperature)=="18-21"){
+    dfT<-T1
+  }
+  else if(unique(df$temperature)=="22-25"){
+    dfT<-T2
+  }
+  else{dfT<-T3}
+  
+   interpolated <- lapply(unique(df$pred_nonoise),function(s){
+     new_time <- seq(min(df$day), max(df$day), length.out = 26)
+     int_sampleT<-interp1(dplyr::filter(df,pred_nonoise==s)$day, dfT$sample_T, new_time, method = "cubic")
+     df_transform<-data.frame(int_biomass=interp1(dplyr::filter(df,pred_nonoise==s)$day, dplyr::filter(df,pred_nonoise==s)$biomass, new_time, method = "cubic"),
+                original_biomass=dplyr::filter(df,pred_nonoise==s)$biomass,int_sampleT=int_sampleT,sample_T=dfT$sample_T,day=new_time,pred_nonoise=rep(s,length(new_time)))
+     
+    df_transform<-df_transform%>%mutate(trans_biomass=original_biomass^1/4)
+    df_transform<-df_transform%>%mutate(resid_biomass=as.vector(lm(data=df_transform,trans_biomass~new_time)$residuals))
+    df_transform<-df_transform%>%mutate(norm_trans_biomass=(resid_biomass - mean(resid_biomass)) / sd(resid_biomass),
+                                        norm_sampleT=(int_sampleT - mean(int_sampleT)) / sd(int_sampleT))
+    
+   })
+   df<-do.call("rbind",interpolated)
+   df$norm_trans_biomass[is.na(df$norm_trans_biomass)]<-0
+
+   
+   return(df)
+})
+
+
+
+# to test us this
+test_df_S<-df_S[23]
+
+#### two questions: inlude T_sample as an interactor? Transorm/interpolate/normalize time series of biomass (and Temperature?)
+
+pairwise_ccm_df_list_filtered<- mclapply(df_S, function(df){
+  var_pairs = expand.grid(target=unique(df$pred_nonoise),interactor = append(unique(df$pred_nonoise),"norm_sampleT"))
+  species<-unique(df$pred_nonoise)
+  
+dftemp<-lapply(species,function(s){
+  dfs<-df%>%dplyr::filter(pred_nonoise==s)%>%select(day,norm_trans_biomass,norm_sampleT)
+  names(dfs)[names(dfs)=="norm_trans_biomass"]<-s
+  return(dfs)
+})
+
+dftemp<-reduce(dftemp,full_join,by=c("day","norm_sampleT"))
+
+  ############## best embedding dimension based on simplex 
+
+	Best_E_df <- apply(var_pairs,1, function(c){
+		best_E_fct(dftemp,c[1],c[2])
+	})
+	Best_E_df <- do.call("rbind",Best_E_df)
+	Best_E_df$ID <- unique(df$ID)
+	
+  ############## produce prediction skill for every possible interactor-target pair at largest library size using best E from above
+	rhos <- apply(Best_E_df, 1, function(r){
+		ccm_out <- CCM(dataFrame = dftemp, target = r[1], column = r[2],
+									 libSizes = c(2+as.numeric(r[3]),26-as.numeric(r[3]),1), Tp = 0, E = as.numeric(r[3]), sample = 100)
+		rho <- ccm_out[26-2-(2*as.numeric(r[3])),3] ###### change to rho from largest library size (example: if E=5:  21-5)
+		if(rho<0) return(data.frame(rho=rho,comment="negative"))
+		else {return(data.frame(rho=rho,comment="positive"))}
+	})
+
+	Best_E_df <- cbind(Best_E_df,do.call("rbind",rhos))
+
+  ############## get significance of prediction skill using surrogate time series
+    significances <- apply(Best_E_df,1,function(r){
+      pvalue<-CCM_significance(data=dftemp,target=r[1],interactor=r[2],libsize =26-as.numeric(r[3]) ,surrogateMethod="seasonal",T_period=8,E=as.numeric(r[3]),rho=r[4])
+})
+  ############## get significance for convergence criteria 
+    convergence<- apply(Best_E_df,1,function(r){
+  pvalue<-CCM_convergence_test(data=dftemp, target=r[1],interactor=r[2], libsize=26-as.numeric(r[3]), step=3, E=as.numeric(r[3]), lmin=NULL, lmax=NULL, maxlag=4)
+  })
+  
+	pairwise_ccm_df <- cbind(Best_E_df,significances,convergence)
+
+	
+significant_pairwise_ccm_df <- pairwise_ccm_df %>%
+	dplyr::filter(significances <= 0.05, rho >0, convergence<=0.05)
+
+significant_pairwise_ccm_df<-split(significant_pairwise_ccm_df,significant_pairwise_ccm_df$target)
+
+list_map<-lapply(significant_pairwise_ccm_df,function(x){
+
+  interactor<-x$interactor
+  lib=c(1,26)
+
+  SMap(dataFrame=dftemp,target=unique(x$target),columns=interactor,E=length(interactor),theta=5,lib=lib,pred=lib,embedded=T)
+})
+
+list_map
+
+}, mc.cores = detectCores()-2)
+
+#save(pairwise_ccm_df_list, file="CCM_interpolated.RData")
+#save(pairwise_ccm_df_list_n, file="CCM_rawdata.RData")
+#save(pairwise_ccm_df_list_trans, file="CCM_transformed.RData")
+#save(pairwise_ccm_df_list_trans_noTemp, file="CCM_transformed_noTemp.RData")
+save(pairwise_ccm_df_list_filtered, file="CCM_filtered.RData")
+
+```
+
+
+## plot Interactions
+
+
+```{r}
+
+load("~/Documents/GitHub/Multifarious-Response-diversity---experiments/Analysis/Data analysis/CCM_filtered.RData")
+load("~/Documents/GitHub/Multifarious-Response-diversity---experiments/Analysis/Data analysis/CCM_transformed.RData")
+
+# unpack ccm list
+results_list <- list()
+
+# Loop through each Sample_ID in the list
+for(sample_id in names(pairwise_ccm_df_list_trans)) {
+  
+  # Loop through each target in the Sample_ID element
+  for(target in names(pairwise_ccm_df_list_trans[[sample_id]])) {
+    
+    # Extract the coefficients data frame
+    coeff_df <- pairwise_ccm_df_list_trans[[sample_id]][[target]]$coefficients
+    
+    # Remove the C0 column
+    coeff_df <- coeff_df[ , !names(coeff_df) %in% "C0"]
+    
+    # Get the additional coefficient column names (after day)
+    extra_cols <- setdiff(names(coeff_df), "day")
+    
+    # Reshape the data: gather all extra columns into one column
+    reshaped_df <- tidyr::gather(coeff_df, key = "coefficient_name", value = "coefficient_value", extra_cols)
+    
+    # Add columns for Sample_ID and target
+    reshaped_df$Sample_ID <- sample_id
+    reshaped_df$target <- target
+    
+    # Add the reshaped data to the results list
+    results_list[[paste0(sample_id, "_", target)]] <- reshaped_df
+  }
+}
+
+# Combine all the results into one data frame
+interactions_df <- do.call(rbind, results_list)
+
+#create temperature and nutrients variable
+interactions_df<-interactions_df %>%
+  mutate(temperature = sapply(strsplit(as.character(Sample_ID), "_"), function(x) paste(x[3], x[4], sep = "-")))
+interactions_df<- mutate(interactions_df,nutrients = gsub(".*Nut(.*?)_.*", "\\1", Sample_ID))
+interactions_df<-interactions_df%>%mutate(composition=sub("_.*", "", Sample_ID))
+#interactions_df<-interactions_df%>%mutate(richness=as.factor(nchar(composition)),coefficient_value=abs(coefficient_value))
+
+all_partial_deriv<-ggplot(data=interactions_df,aes(x=log10(coefficient_value)))+
+  geom_histogram()+
+  facet_wrap(nutrients~temperature,scale="free_y")
+  #geom_jitter(aes(cex=20))
+
+
+#exclude intraspecific interaction
+interactions_df<-dplyr::filter(interactions_df,coefficient_name!="∂C/∂C" & coefficient_name!="∂D/∂D" & coefficient_name!="∂L/∂L" &
+                          coefficient_name!="∂S/∂S" & coefficient_name!="∂P/∂P")
+
+# exclude interaction of temperature
+interactions_df<-dplyr::filter(interactions_df,coefficient_name!="∂C/∂norm_sampleT" & coefficient_name!="∂D/∂norm_sampleT" & coefficient_name!="∂L/∂norm_sampleT" &
+                          coefficient_name!="∂S/∂norm_sampleT" & coefficient_name!="∂P/∂norm_sampleT")
+
+
+
+
+plot_int_ts<-ggplot(interactions_df%>%dplyr::filter(nutrients==0.75),aes(x=day,y=coefficient_value,color=coefficient_name))+
+  geom_line()+
+  facet_wrap(~Sample_ID,scale="free")
+
+
+mean_int_species<-interactions_df%>%group_by(Sample_ID,coefficient_name,temperature,nutrients,composition,target)%>%summarize(mean_interaction=mean(abs(coefficient_value),na.rm = T))
+mean_int_species<-mutate(mean_int_species,richness=as.factor(nchar(composition)))
+
+mean_int_species<-mean_int_species%>%group_by(Sample_ID,temperature,nutrients,composition,target,richness)%>%summarize(number_interactions=length(coefficient_name))
+
+all_partial_deriv<-ggplot(data=mean_int_species,aes(y=number_interactions,x=richness))+
+  geom_boxplot()+
+  geom_jitter(height=0.1,aes(color=nutrients))+
+  facet_wrap(~target,scale="free")
+  #geom_jitter(aes(cex=20))
+
+all_partial_richness<-ggplot(data=mean_int_species,aes(y=log10(mean_interaction),x=richness))+
+  geom_boxplot()+
+  facet_grid(nutrients~temperature,scale="free_x")+
+  geom_jitter()
+
+# mean_interaction_df<- interactions_df%>%group_by(Sample_ID,day,temperature,nutrients,composition)%>%reframe(mean_interaction=sum(coefficient_value)/((nchar(composition)^2) - nchar(composition)))
+
+mean_interaction_df<- interactions_df%>%group_by(Sample_ID,day,temperature,nutrients,composition)%>%reframe(mean_interaction=mean(abs(coefficient_value)),sum_interaction=sum(abs(coefficient_value)))
+
+
+plot_mean_interactions<-ggplot(data=mean_interaction_df,aes(x=day,y=mean_interaction,color=composition))+
+  geom_line()+
+  facet_grid(temperature~nutrients,scale="free")
+
+overall_mean_interaction<-mean_interaction_df%>%group_by(Sample_ID,temperature,nutrients,composition)%>%reframe(mean_sum_interactions=mean(sum_interaction,na.rm=T),mean_interaction_strength=mean(mean_interaction,na.rm=T))
+
+
+
+## join interactions with main df (complete_aggr)
+names(overall_mean_interaction)[names(overall_mean_interaction)=="Sample_ID"]<-"sample_ID"
+
+int_aggr<-inner_join(dplyr::select(overall_mean_interaction,mean_interaction_strength,sample_ID,mean_sum_interactions),complete_aggr,join_by(sample_ID))
+
+## distributions
+
+plot_dist_interaction<-ggplot(data=int_aggr,aes(x=mean_interaction_strength))+
+  geom_histogram(bins=30)
+plot_dist_interaction_log<-ggplot(data=int_aggr,aes(x=log10(mean_interaction_strength)))+
+  geom_histogram(bins=30)
+
+
+plot_dist_CV<-ggplot(data=int_aggr,aes(x=1/CV))+
+  geom_histogram(bins=30)
+plot_dist_CV_log<-ggplot(data=int_aggr,aes(x=log10(1/CV)))+
+  geom_histogram(bins=30)
+grid.arrange(plot_dist_CV,plot_dist_CV_log)
+
+
+### should we log transform 1/CV ?
+
+plot_CV_int_mean<-ggplot(data=int_aggr,aes(x=log10(mean_interaction_strength),y=1/CV,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+  #facet_grid(temperature~nutrients,scale="free")
+
+plot_CV_int_sum<-ggplot(data=int_aggr,aes(x=log10(mean_sum_interactions),y=1/CV,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+  #facet_grid(temperature~nutrients,scale="free")
+
+
+
+plot_divergence_int<-ggplot(data=int_aggr,aes(y=log10(mean_interaction_strength),x=mean_divergence))+
+  geom_point()+
+  geom_smooth(method="lm")
+# ->no relationship between interaction and divergence
+
+plot_dissimilarity_int<-ggplot(data=int_aggr,aes(y=log10(mean_interaction_strength),x=mean_dissimilarity%>%sqrt(),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_richness_int<-ggplot(data=int_aggr,aes(y=log10(mean_interaction_strength),x=richness))+
+  geom_boxplot()+
+  geom_jitter()
+
+
+plot_temp_int<-ggplot(data=int_aggr,aes(y=log10(mean_interaction_strength),x=temperature))+
+  geom_boxplot()+
+  geom_jitter(aes(color=nutrients))
+
+plot_nut_int<-ggplot(data=int_aggr,aes(y=log10(mean_interaction_strength),x=nutrients))+
+  geom_boxplot()+
+  geom_jitter()
+
+
+##### look at CV~divergence with all alternative values
+
+plot_divergence_R_CV<-ggplot(int_aggr,aes(y=log10(1/CV),x=mean_divergence,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_int_simple_div_CV<-ggplot(int_aggr,aes(y=log10(1/CV),x=simple_divergence))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+plot_abs_sum_slopes_CV<-ggplot(int_aggr,aes(y=log10(1/CV),x=log10(abs_sum_slope)))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+#interactions vs r_div
+
+plot_abs_sum_slopes_int<-ggplot(int_aggr,aes(y=log10(mean_interaction_strength),x=log10(abs_sum_slope)))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_simple_divergence_int<-ggplot(int_aggr,aes(y=log10(mean_interaction_strength),x=simple_divergence))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+
+
+
+
+plot_dissim_R_CV<-ggplot(int_aggr,aes(y=log10(1/CV),x=mean_dissimilarity,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+
+####### what about all the microcosms that show no interactions ##############
+
+no_int_aggr<-complete_aggr%>%dplyr::filter(!sample_ID %in% int_aggr$sample_ID)
+
+plot_divergence_no_int<-ggplot(no_int_aggr,aes(y=log10(1/CV),x=mean_divergence,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+# even more pronounced interaction between richness and mean divergence for species where we have not found evidence for interactions...
+# does this mean that species interactions is not the root cause of that interactive effect of richness?
+
+plot_richness_no_int<-ggplot(data=no_int_aggr,aes(y=log10(1/CV),x=richness))+
+  geom_boxplot()+
+  geom_jitter()
+
+# richness seems to have a negative effect on stability
+
+plot_temp_no_int<-ggplot(data=no_int_aggr,aes(y=log10(1/CV),x=temperature))+
+  geom_boxplot()+
+  geom_jitter()
+
+# so does T
+plot_nut_no_int<-ggplot(data=no_int_aggr,aes(y=log10(1/CV),x=nutrients))+
+  geom_boxplot()+
+  geom_jitter()
+
+# and nutrients seem to have a positive effect
+
+# set all communities with 0 interactions detected to = = (or rather +1)
+ no_int_aggr <- no_int_aggr%>%mutate(mean_interaction_strength=0,
+                                     mean_sum_interactions=0)
+ 
+ total_int_aggr<-full_join(no_int_aggr,int_aggr)
+ 
+ total_int_aggr<-total_int_aggr%>%mutate(mean_interaction_strength=mean_interaction_strength+1,
+                                     mean_sum_interactions=mean_sum_interactions+1)
+ 
+ 
+ 
+ plot_CV_int_mean_tot<-ggplot(data=total_int_aggr,aes(x=log10(mean_interaction_strength),y=log10(1/CV),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+  #facet_grid(temperature~nutrients,scale="free")
+ 
+ plot_CV_int_sum_tot<-ggplot(data=total_int_aggr,aes(x=log10(mean_sum_interactions),y=log10(1/CV),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+  #facet_grid(temperature~nutrients,scale="free")
+ 
+ #-> richness 3 and 4 no longer negative slopes...
+
+```
+
+
+
+##Extinctions
+
+```{r}
+
+complete_ts_micro_level<-complete_ts%>%group_by(sample_ID,day,temperature,nutrients,composition)%>%summarise(mean_biomass=mean(biomass))
+complete_ts_micro_level<-complete_ts_micro_level%>%mutate(richness=nchar(composition)%>%as.factor())
+
+ts_level_richness
+
+plot_biomass<-ggplot(data=complete_ts_micro_level)+
+  geom_line(method="loess",se=F,aes(x=day,y=mean_biomass,group=sample_ID,color=richness),size=0.8,alpha=0.5)+
+  #geom_smooth(aes(x=day,y=mean_biomass,color=richness))+
+  theme_bw()+
+  facet_wrap(temperature~nutrients,scale="free_y")
+
+
+plot_biomass_incomplete<-ggplot(data=dd_ts_id)+
+  geom_line(method="loess",se=F,aes(x=day,y=biomass,group=sample_ID,color=richness),colour="black",size=0.8,alpha=0.2)+
+  geom_smooth(aes(x=day,y=biomass,color=pred_nonoise),se=F,method="loess")+
+  theme_bw()+
+  facet_wrap(temperature~nutrients,scale="free_y")
+
+
+plot_biomass_complete<-ggplot(data=complete_ts)+
+  geom_line(method="loess",se=F,aes(x=day,y=biomass,group=sample_ID),colour="black",size=0.8,alpha=0.2)+
+  geom_smooth(aes(x=day,y=biomass,color=pred_nonoise),se=F,method="loess")+
+  theme_bw()+
+  facet_wrap(temperature~nutrients,scale="free_y")
+
+##create new variable where it check, where the last observation =0 is; with complete_ts
+complete_ts <- complete_ts %>%
+  group_by(pred_nonoise, sample_ID) %>%
+  arrange(day) %>%
+  mutate(
+    # Create a flag for non-zero biomass
+    non_zero_biomass = biomass != 0,
+    # Find the last non-zero day
+    last_non_zero_day = ifelse(any(non_zero_biomass), max(day[non_zero_biomass], na.rm = TRUE), NA),
+    # Find the first zero day after the last non-zero day
+    first_zero_day = ifelse(
+      !is.na(last_non_zero_day),
+      min(day[!non_zero_biomass & day > last_non_zero_day], na.rm = TRUE),
+      NA
+    ),
+    # Flag for days after the first zero day
+    is_after_first_zero_day = ifelse(!is.na(first_zero_day), day >= first_zero_day, FALSE)
+  ) %>%
+  ungroup()
+complete_ts<-complete_ts %>%
+  group_by(sample_ID, pred_nonoise) %>%
+  mutate(relative_zero_biomass = sum(biomass == 0)/richness) %>%
+  ungroup()
+
+extinction_df<-complete_ts%>%group_by(sample_ID,nutrients,temperature,composition,richness,pred_nonoise)%>%summarize(last_obs=unique(last_non_zero_day),tot_zero=unique(relative_zero_biomass))
+
+extinction_df$last_obs[is.na(extinction_df$last_obs)]<-0
+
+plot_last_observation<-ggplot(data=extinction_df,aes(x=last_obs,y=as.factor(temperature)))+
+  geom_boxplot()+
+  geom_jitter(aes(color=as.factor(richness)))+
+  facet_wrap(~pred_nonoise)+
+  xlab("last observation [day]")
+
+hist_extinctions<-ggplot(data=extinction_df,aes(y=last_obs,x=as.factor(richness)))+
+  geom_boxplot()+
+  geom_jitter()
+  
+
+## total extinction day on level of microcosm
+extinction_df_aggr<-extinction_df%>%group_by(sample_ID,nutrients,temperature,composition,richness)%>%summarize(extinction_microcosm=max(last_obs),tot_zeroes=sum(tot_zero),na.rm = T)%>%ungroup()
+
+plot_extinction<-ggplot(data=extinction_df_aggr,aes(y=extinction_microcosm,x=richness%>%as.factor()))+
+  geom_boxplot()+
+  geom_jitter()+
+  facet_grid(temperature~nutrients)+
+  ylab("last day before extinction")
+
+extinction_df_aggr<-select(extinction_df_aggr,sample_ID,extinction_microcosm,tot_zeroes)
+
+extinction_df_aggr<-full_join(extinction_df_aggr%>%select(sample_ID,extinction_microcosm,tot_zeroes),complete_aggr)
+
+plot_ex_div<-ggplot(data=extinction_df_aggr,aes(x=mean_divergence,y=extinction_microcosm))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_ex_CV_complete<-ggplot(data=extinction_df_aggr,aes(y=log10(1/CV),x=extinction_microcosm))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  xlab("day of last observation")
+
+plot_last_obs_richness<-ggplot(data=extinction_df_aggr,aes(x=richness,y=extinction_microcosm))+
+  geom_boxplot()+
+  geom_jitter()
+
+
+plot_tot_zeroes_richness<-ggplot(data=extinction_df_aggr,aes(x=richness,y=tot_zeroes))+
+  geom_boxplot()+
+  geom_jitter()
+
+plot_tot_zeroes_nut_richness<-ggplot(data=extinction_df_aggr,aes(x=nutrients,y=tot_zeroes,color=richness))+
+  geom_boxplot()+
+  geom_jitter()
+# low nutrients have most zeroes -> the least stable
+
+
+plot_tot_zeroes_CV<-ggplot(data=extinction_df_aggr,aes(y=log10(1/CV),x=tot_zeroes))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  xlab("tot number of zeroes")
+
+# the more zero observations, the less stable 
+  
+
+# add CV from incomplete ts
+
+extinction_df_aggr<-full_join(extinction_df_aggr,dens_aggr_incomplete%>%select(sample_ID,CV),join_by(sample_ID))
+names(extinction_df_aggr)[extinction_df_aggr%>%names=="CV.x"]<-"CV_complete"
+names(extinction_df_aggr)[extinction_df_aggr%>%names=="CV.y"]<-"CV_incomplete"
+
+plot_ex_CV_incomplete<-ggplot(data=extinction_df_aggr,aes(y=log10(1/CV_incomplete),x=extinction_microcosm,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  xlab("day of last observation")
+
+#now it is the opposite...
+
+#look at standard deviation and mean
+plt_sd_mean<-ggplot(data=extinction_df_aggr,aes(x=sd,y=mean))+
+  geom_point()
+
+#CV seams reasonable-> higher mean associated with higher sd
+
+##only look at microcosms that did not go extinct
+
+plot_58_CV_div<-ggplot(data=extinction_df_aggr%>%dplyr::filter(extinction_microcosm==58),aes(x=mean_divergence,y=log10(1/CV_complete),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+# look at extinctions with interactions
+
+extinction_df_int<-inner_join(int_aggr,extinction_df_aggr)
+
+plot_int_ext<-ggplot(data=extinction_df_int,aes(y=extinction_microcosm,x=log10(interaction_strength)))+
+  geom_point()
+  
+plot_int_tot_zeroes<-ggplot(data=extinction_df_int,aes(y=tot_zeroes,x=log10(interaction_strength),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+
+
+
+```
+
+
+
+## Interactions combined microcosms
+
+```{r}
+
+library(multispatialCCM)
+
+
+
+
+df_S_unpacked <- map_dfr(names(df_S), function(df_name) {
+  clean_name <- sub("_[^_]*$", "", df_name)
+  df_S[[df_name]] %>%
+    mutate(treatment_ID = clean_name,
+           sample_ID=df_name) # Add the source name as a new variable
+})
+df_S_treatment<-split(df_S_unpacked,df_S_unpacked$treatment_ID)
+
+
+
+
+pairwise_ccm_df_list_repcom<- mclapply(df_S_treatment, function(df){
+  var_pairs = expand.grid(target=unique(df$predict_spec),interactor = append(unique(df$predict_spec),"norm_sampleT"))
+  species<-unique(df$predict_spec)
+  
+ #create data frames where replicates are concatenated back-to-back into a single vector, with gaps between time series indicated by "NA".
+  
+dftemp<-lapply(species,function(sp){
+  dfs<-lapply(unique(df$sample_ID),function(sa){
+  dfa<-df%>%dplyr::filter(predict_spec==sp,sample_ID==sa)%>%dplyr::select(day,norm_trans_biomass,norm_sampleT)
+  dfa<-rbind(dfa,rep(NA,3))
+  names(dfa)[names(dfa)=="norm_trans_biomass"]<-sp
+  return(dfa)
+  })
+ dfs<-do.call("rbind",dfs)
+ dfs%>%mutate(position=1:(nrow(dfs)))
+})
+
+
+dftemp<-reduce(dftemp,full_join,by=c("position","day","norm_sampleT"))
+var_pairs
+########### get best embedding dimension
+# creates for each target-interactor pair a seperate best embedding; unlike what the package suggests which is to use each variable on it's self to find best embedding dimension
+
+Best_E_df<-apply(var_pairs,1,function(c){
+  max1 <- c()
+  max2 <- c()
+  
+  for(i in 2:12){
+    ccm_out<-SSR_pred_boot(B=dftemp%>%pull(c[1]),A=dftemp%>%pull(c[2]),E=i,predstep=1)
+    #max1[i-1] <- ccm_out[1,2]
+    max2[i-1] <- ccm_out$rho
+    
+  }
+   # Check if max2 has valid values
+  if (length(max2) == 0 || all(is.na(max2))) {
+    print(paste("Empty max2 for target:", c[1], "and interactor:", c[2]))
+    return(data.frame(target = c[1], interactor = c[2], Best_E = NA,rho=NA))
+  } else {
+    return(data.frame(target = c[1], interactor = c[2], Best_E = which.max(max2) + 1,rho=max(max2)))
+  }
+})
+
+  Best_E_df<-do.call("rbind",Best_E_df)
+  Best_E_df<-Best_E_df%>%dplyr::filter(!is.na(Best_E))
+  
+ccms<-apply(Best_E_df,1,function(r){
+  
+  ccm<-CCM_boot(A=dftemp%>%pull(r[2]),B=dftemp%>%pull(r[1]),E=as.numeric(r[3]),iterations=10)
+})
+  
+  ccms
+})
+ 
+  
+  significances <- apply(Best_E_df,1,function(r){
+    ts <- unlist(dftemp%>%pull(r["interactor"]))
+    ts2<-ts[!is.na(ts)]
+  
+    surr_interactor = SurrogateData(ts2, method = "seasonal", T_period = 8,
+                                    num_surr = 100, alpha = 3)
+   
+    surr_interactor <- as.data.frame(surr_interactor)
+
+    # Create an empty row filled with NA, with the same number of columns as the matrix
+    na_row <- as.data.frame(matrix(t(rep(NA, ncol(surr_interactor)) ),nrow=1))
+    
+    # Add NA row after the 26th and 52nd rows
+    df_data_with_na <- rbind(
+      surr_interactor[1:26, ],   # First 26 rows
+      na_row,            # Add NA row after 26th
+      surr_interactor[27:52, ],  # Next 26 rows
+      na_row,            # Add NA row after 52nd
+      surr_interactor[53:78, ],
+      na_row                  # Remaining rows
+    )
+    
+  
+  rho_surr <- data.frame(interactor_rho = numeric(100))
+  
+  interactor_data = as.data.frame(cbind(dftemp%>%pull(r[1]),df_data_with_na))
+  names(interactor_data) = c( r[1], paste("T", as.character(seq(1, 100)),	sep = ""))
+  
+
+  
+  sapply(1:100,function(i){
+    targetCol = paste("T", i, sep = "") 
+    
+    ccm_out=CCM_boot(A=dftemp%>%pull(r[1]),B=interactor_data%>%pull(targetCol),E=as.numeric(r[3]))
+    
+    rho_surr$interactor_rho[i] <- ccm_out$rho
+      
+})
+  return(rho_surr)
+  #if(!is.na(r[4])){significance <- 1 - ecdf(rho_surr$interactor_rho)(as.numeric(r[4]))
+  #return(significance)}else{return(NA)}
+})
+  significances
+})
+
+
+mclapply(function(data, target, interactor){
+  max1 <- c()
+  max2 <- c()
+  for(i in 2:5){
+    ccm_out <- CCM(dataFrame = data, target = target, column = interactor,libSizes = c(21,21,20), Tp = -1, E = i, sample = 100)
+    # max1[i-1] <- ccm_out[1,2]
+    max2[i-1] <- ccm_out[1,3]
+  }
+  df <- data.frame(target=target,
+                   interactor=interactor,
+                   Best_E = which.max(max2)+1)
+  return(df)
+})
+
+
+  ############## best embedding dimension based on simplex 
+
+	Best_E_df <- apply(var_pairs,1, function(c){
+		best_E_fct(dftemp,c[1],c[2])
+	})
+	
+	Best_E_df <- do.call("rbind",Best_E_df)
+	Best_E_df$ID <- unique(df$ID)
+	
+  ############## produce prediction skill for every possible interactor-target pair at largest library size using best E from above
+	rhos <- apply(Best_E_df, 1, function(r){
+		ccm_out <- CCM(dataFrame = dftemp, target = r[1], column = r[2],
+									 libSizes = c(5,21,1), Tp = 0, E = as.numeric(r[3]), sample = 100)
+		rho <- ccm_out[16,3] ###### change to rho from largest library size (here 21-5)
+		if(rho<0) return(data.frame(rho=rho,comment="negative"))
+		else {return(data.frame(rho=rho,comment="positive"))}
+	})
+
+	Best_E_df <- cbind(Best_E_df,do.call("rbind",rhos))
+	
+  ############## get significance of prediction skill using surrogate time series
+    significances <- apply(Best_E_df,1,function(r){
+      pvalue<-CCM_significance(data=dftemp,target=r[1],interactor=r[2],libsize =21 ,surrogateMethod="seasonal",T_period=8,E=as.numeric(r[3]),rho=r[4])
+})
+  ############## get significance for convergence criteria 
+    convergence<- apply(Best_E_df,1,function(r){
+  pvalue<-CCM_convergence_test(data=dftemp, target=r[1],interactor=r[2], libsize=21, step=3, E=as.numeric(r[3]), lmin=NULL, lmax=NULL, maxlag=4)
+  })
+  
+	pairwise_ccm_df <- cbind(Best_E_df,significances,convergence)
+
+	
+significant_pairwise_ccm_df <- pairwise_ccm_df %>%
+	dplyr::filter(significances <= 0.05, rho >0, convergence<=0.05)
+
+significant_pairwise_ccm_df<-split(significant_pairwise_ccm_df,significant_pairwise_ccm_df$target)
+
+list_map<-lapply(significant_pairwise_ccm_df,function(x){
+
+  interactor<-x$interactor
+  lib=c(1,26)
+
+  SMap(dataFrame=dftemp,target=unique(x$target),columns=interactor,E=length(interactor),theta=5,lib=lib,pred=lib,embedded=T)
+})
+
+list_map
+
+}, mc.cores = detectCores()-2)
+
+
+
+```
+
+# morphology
+```{r}
+ts_morph<-id_dd%>%group_by(sample_ID,pred_nonoise,predict_spec,day,temperature,nutrients,composition)%>%summarize(mean_net_speed=mean(net_speed),
+                                                                                                     mean_mean_area=mean(mean_area))
+
+plot_mean_netspeed<-ggplot(data=ts_morph,aes(x=day,y=mean_net_speed,color=pred_nonoise))+
+  geom_point()+geom_smooth()+
+  facet_grid(temperature~nutrients)
+
+plot_mean_boxplot<-ggplot(data=ts_morph,aes(x=nchar(composition)%>%as.factor(),y=mean_net_speed))+
+  geom_boxplot()+geom_jitter()+
+  facet_grid(temperature~nutrients)
+
+plot_mean_netspeed<-ggplot(data=ts_morph,aes(x=day,y=mean_mean_area,color=pred_nonoise))+
+  geom_point()+geom_smooth()+
+  facet_grid(temperature~nutrients)
+
+plot_mean_boxplot<-ggplot(data=ts_morph,aes(x=nutrients%>%as.factor(),y=mean_mean_area))+
+  geom_boxplot()+geom_jitter()+
+  facet_wrap(~predict_spec)
+
+```
+
+
+
+# interesting plots
+
+```{r}
+## biomass over time
+
+plot_biomass
+### => richness =2 more biomass
+
+## response diversity vs temporal stability
+
+plot_CV_divergence_comp
+
+# divergence does only consider the two most "extreme" species in terms of their performance change -> interaction between richness and  divergence
+
+#### effects of temperature; nutrient and richness
+
+plot_T_complete
+plot_N_complete
+plot_R_complete
+
+### dissimilarity
+
+plot_CV_dissim_comp
+
+
+### interactions
+
+plot_CV_int_mean+plot_CV_int_sum
+
+plot_divergence_int
+
+plot_richness_int
+plot_temp_int
+plot_nut_int
+
+
+### new response div metrics
+
+plot_CV_simple_divergence
+
+plot_CV_abs_sum_slope
+
+
+```
+
