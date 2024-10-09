@@ -21,6 +21,8 @@ library(signal)
 library(ggfortify)
 library(data.table)
 library(patchwork)
+library(codyn)
+library(ggrepel)
 ```
 
 # load, combine and curate dataset
@@ -371,26 +373,260 @@ plot_complete_biomass_richness<-ggplot(data=complete_ts,aes(y=biomass,x=day,colo
 
 ```
 
+## Biomass contribution
+
+
+```{r}
+complete_ts<-complete_ts%>%group_by(sample_ID,composition,day)%>%mutate(tot_biomass=sum(biomass))
+complete_ts<-complete_ts%>%mutate(biom_contribution=biomass/tot_biomass)
+
+complete_ts<-complete_ts%>%mutate(temperature=paste0(temperature," °C"),
+                                      nutrients=paste0(nutrients," g/L"))
+
+plot_complete_035_25_28<-ggplot(data=dplyr::filter(complete_ts, temperature=="25-28 °C",nutrients=="0.35 g/L"),aes(x=day,y=biom_contribution,fill=pred_nonoise))+
+  geom_area()+
+  scale_fill_brewer(palette = "Set3")+
+  facet_wrap(~sample_ID,scale="free")
+
+plot_complete_035_18_21<-ggplot(data=dplyr::filter(complete_ts, temperature=="18-21 °C",nutrients=="0.35 g/L"),aes(x=day,y=biom_contribution,fill=pred_nonoise))+
+  geom_area(se=F)+
+  scale_fill_brewer(palette = "Set3")+
+  facet_wrap(~sample_ID,scale="free")
+
+plot_complete_001_18_21<-ggplot(data=dplyr::filter(complete_ts, temperature=="18-21 °C",nutrients=="0.01 g/L"),aes(x=day,y=biom_contribution,fill=pred_nonoise))+
+  geom_area(se=F)+
+  scale_fill_brewer(palette = "Set3")+
+  facet_wrap(~sample_ID,scale="free")
+
+
+df_slopes <- read_csv("df_slopes.csv")
+names(df_slopes)[names(df_slopes)=="species_initial"]<-"pred_nonoise"
+
+slope_ts<-full_join(select(df_slopes,nutrients,pred_nonoise,temperature,slope),complete_ts)
+slope_ts<-slope_ts%>%mutate(w_slope=biom_contribution*slope)
+
+slope_ts<-slope_ts%>%group_by(sample_ID,temperature,nutrients,richness,composition,day,tot_biomass)%>%summarize(sum_w_slopes=abs(sum(w_slope)))
+
+slope_ts<-slope_ts%>%mutate(richness=as.factor(richness))
+
+#divide by 0 total biomass -> NA ... what to do with that?
+#slope_ts$sum_w_slopes[is.na(slope_ts$sum_w_slopes)]<-0
+
+
+
+
+##create new variable where it checks, where the last observation =0 is; with complete_ts
+aggr_ts <- slope_ts %>%
+  group_by( sample_ID) %>%
+  arrange(day) %>%
+  mutate(
+    # Create a flag for non-zero tot_biomass
+    non_zero_biomass = tot_biomass != 0,
+    # Find the last non-zero day
+    last_non_zero_day = ifelse(any(non_zero_biomass), max(day[non_zero_biomass], na.rm = TRUE), NA),
+    # Find the first zero day after the last non-zero day
+    first_zero_day = ifelse(
+      !is.na(last_non_zero_day),
+      min(day[!non_zero_biomass & day > last_non_zero_day], na.rm = TRUE),
+      NA
+    ),
+    # Flag for days after the first zero day
+    is_after_first_zero_day = ifelse(!is.na(first_zero_day), day > first_zero_day, FALSE)
+  ) %>%
+  ungroup()
+
+aggr_ts<-aggr_ts%>%mutate(rep_var=sub("_[^_]+$", "", sample_ID))
+
+plot_balance_035_18_21<-ggplot(data=aggr_ts%>%dplyr::filter(nutrients=="0.35 g/L",temperature=="18-21 °C",is_after_first_zero_day==FALSE),aes(x=day,y=sum_w_slopes,group=sample_ID))+
+  geom_point()+
+  geom_smooth(se=F)+
+  facet_wrap(~composition,scale="free")
+
+plot_complete_035_18_21+ plot_balance_035_18_21
+
+
+ls_ts_microcosm<-aggr_ts%>%mutate(rep_var=sub("_[^_]+$", "", sample_ID))%>%dplyr::filter(is_after_first_zero_day==FALSE,first_zero_day>11)
+
+######
+ls_ts_microcosm<-split(ls_ts_microcosm,ls_ts_microcosm$sample_ID)
+
+options(dplyr.summarise.inform = FALSE)
+
+balance_ts<-lapply(ls_ts_microcosm,function(m){
+ # Number of days in a window
+window_length <- 8
+days=unique(m$day)
+  
+
+# Initialize an empty list to store the windows
+windows_list <- list()
+
+# Ensure that the loop doesn't go out of bounds
+for (i in 1:(length(days) - window_length + 1)) {
+  # Create a window of length 6
+  if ((i + window_length - 1) <= length(days)) {
+    window <- days[i:(i + window_length - 1)]
+    windows_list[[i]] <- window
+  }
+}
+  
+  ts<-lapply(windows_list,function(w){
+    df<-m%>%dplyr::filter(day%in%w)
+    df<-df%>%group_by(composition,nutrients,temperature,sample_ID)%>%summarise(
+  mean_biom=mean(tot_biomass),
+  CV=sd(tot_biomass)/mean(tot_biomass),
+  sd=sd(tot_biomass),
+  avg_w_sumslopes=mean(sum_w_slopes,na.rm = T),
+  window_start=min(day),window_end=max(day)
+)
+    
+    return(df)
+  })
+
+  ts<-do.call("rbind",ts)
+  return(ts)
+})
+
+df_balance_ts<-do.call("rbind",balance_ts)
+df_balance_ts<-df_balance_ts%>%mutate(richness=nchar(composition)%>%as.factor())
+
+
+plot_CV_ts<-ggplot(data=df_balance_ts%>%dplyr::filter(nutrients=="0.35 g/L",temperature=="18-21 °C"),aes(x=window_start,y=log10(1/CV)))+
+  geom_line()+
+  #geom_line(aes(x=window_start,y=avg_w_sumslopes),color="red")+
+  facet_wrap(~sample_ID,scale="free_y")
+
+plot_avg_w_sumslopes_ts<-ggplot(data=df_balance_ts%>%dplyr::filter(nutrients=="0.35 g/L",temperature=="18-21 °C"))+
+  #geom_line()+
+  geom_line(aes(x=window_start,y=log10(avg_w_sumslopes)),color="red")+
+  facet_wrap(~sample_ID,scale="free_y")
+
+plot_avg_w_sumslopes_ts+plot_CV_ts
+
+##### Cor within microcosm
+
+plot_cor_sumslope_micro<-ggplot(data=df_balance_ts%>%dplyr::filter(nutrients=="0.35 g/L",temperature=="18-21 °C"),aes(x=log10(avg_w_sumslopes),y=1/CV))+
+  geom_point()+
+  facet_wrap(~sample_ID)
+
+plot_cor_sumslope<-ggplot(data=df_balance_ts,aes(x=log10(avg_w_sumslopes),y=1/CV,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+df_w_slope_micro<-df_balance_ts%>%dplyr::filter(!is.na(CV))%>%group_by(richness,sample_ID,temperature,nutrients,composition)%>%summarize(cor=cor(avg_w_sumslopes,1/CV))
+
+plot_hist_cor_sumlope_micro<-ggplot(data=df_w_slope_micro)+
+  geom_histogram(aes(x=cor),bins=20)
+
+plot_box_cor_sumlope_micro<-ggplot(data=df_w_slope_micro)+
+  geom_boxplot(aes(y=cor,x=richness))+
+  geom_jitter(aes(y=cor,x=richness))
+
+# cor within days among microcosms
+
+df_w_slope_days_pearson<-df_balance_ts%>%dplyr::filter(!is.na(CV))%>%group_by(window_start)%>%summarize(
+  cor=cor.test(x=log10(avg_w_sumslopes),y=1/CV,method="pearson")$estimate,
+  uppr=cor.test(x=log10(avg_w_sumslopes),y=1/CV,method="pearson")$conf.int[2],
+  lwr=cor.test(x=log10(avg_w_sumslopes),y=1/CV,method="pearson")$conf.int[1],
+  pvalue=cor.test(x=log10(avg_w_sumslopes),y=1/CV,method="pearson")$p.value)
+
+plot_ts_cor_pearson<-ggplot(data=df_w_slope_days_pearson,aes(x=window_start,y=cor))+
+  geom_line()+
+  geom_ribbon(aes(ymin=lwr,ymax=uppr),alpha=0.1)+
+  geom_hline(yintercept=0,linetype="dotted")
+
+library(RVAideMemoire)
+
+df_w_slope_days_spearman<-df_balance_ts%>%dplyr::filter(!is.na(CV))%>%group_by(window_start)%>%summarize(
+  cor=spearman.ci(avg_w_sumslopes%>%log10(),1/CV)$estimate,
+  lwr=spearman.ci(avg_w_sumslopes%>%log10(),1/CV)$conf.int[1],
+  uppr=spearman.ci(avg_w_sumslopes%>%log10(),1/CV)$conf.int[2])
+
+plot_ts_cor_spearman<-ggplot(data=df_w_slope_days_spearman,aes(x=window_start,y=cor))+
+  geom_line()+
+  geom_ribbon(aes(ymin=lwr,ymax=uppr),alpha=0.1)+
+  geom_hline(yintercept=0,linetype="dotted")
+
+df_w_slope_days_kendall<-df_balance_ts%>%dplyr::filter(!is.na(CV))%>%group_by(window_start)%>%summarize(
+  cor=cor.test(x=avg_w_sumslopes%>%log10(),y=1/CV,method="kendall")$estimate,
+  p_value=cor.test(x=avg_w_sumslopes%>%log10(),y=1/CV,method="kendall")$p.value)
+
+plot_ts_cor_kendall<-ggplot(data=df_w_slope_days_kendall,aes(x=window_start,y=cor))+
+  geom_line()+
+  geom_hline(yintercept=0,linetype="dotted")
+
+# do the same but with richness as a level
+
+df_w_slope_pearson_richness<-df_balance_ts%>%dplyr::filter(!is.na(CV))%>%group_by(window_start,richness)%>%summarize(
+  cor=cor.test(x=avg_w_sumslopes%>%log10(),y=1/CV)$estimate,
+  uppr=cor.test(x=avg_w_sumslopes%>%log10(),y=1/CV)$conf.int[2],
+  lwr=cor.test(x=avg_w_sumslopes%>%log10(),y=1/CV)$conf.int[1])
+
+plot_ts_cor_R<-ggplot(data=df_w_slope_pearson_richness,aes(x=window_start,y=cor))+
+  geom_line()+
+  geom_ribbon(aes(ymin=lwr,ymax=uppr),alpha=0.1)+
+  geom_hline(yintercept=0,linetype="dotted")+
+  facet_wrap(~richness)
+
+df_w_slope_days_spearman_R<-df_balance_ts%>%dplyr::filter(!is.na(CV))%>%group_by(window_start,richness)%>%summarize(
+  cor=spearman.ci(avg_w_sumslopes%>%log10(),1/CV)$estimate,
+  lwr=spearman.ci(avg_w_sumslopes%>%log10(),1/CV)$conf.int[1],
+  uppr=spearman.ci(avg_w_sumslopes%>%log10(),1/CV)$conf.int[2])
+
+plot_ts_spear_R<-ggplot(data=df_w_slope_days_spearman_R,aes(x=window_start,y=cor))+
+  geom_line()+
+  geom_ribbon(aes(ymin=lwr,ymax=uppr),alpha=0.1)+
+  geom_hline(yintercept=0,linetype="dotted")+
+  facet_wrap(~richness)
+
+
+##do the same as with correlation but with the slope of an lm
+
+df_w_slope_days_lm<-df_balance_ts%>%dplyr::filter(!is.na(CV))%>%group_by(window_start)%>%summarize(
+  slope=summary(lm(1/CV~log10(avg_w_sumslopes)))$coefficients[2,1],
+  se=summary(lm(1/CV~log10(avg_w_sumslopes)))$coefficients[2,2])
+
+plot_ts_lm<-ggplot(data=df_w_slope_days_lm,aes(x=window_start,y=slope))+
+  geom_line()+
+  geom_ribbon(aes(ymin=slope-se,ymax=slope+se),alpha=0.1)+
+  geom_hline(yintercept=0,linetype="dotted")
+  #facet_wrap(~richness)
+
+
+
+#### biomass ts
+#take the mean of three replicates 
+biomass_ts<-aggr_ts%>%group_by(day,temperature,nutrients,rep_var,richness,composition)%>%summarize(tot_biom=mean(tot_biomass),se_tot_biom=sd(tot_biomass)/sqrt(3))
+
+plot_biomass<-ggplot(data=biomass_ts)+
+  #geom_ribbon(aes(x=day,y=mean_tot_biom,fill=richness,color=richness,ymin=mean_tot_biom-se_tot_biom,ymax=mean_tot_biom+se_tot_biom),alpha=0.5)+
+  geom_line(method="loess",se=F,aes(x=day,y=tot_biom,group=rep_var,color=richness),size=0.8)+
+ 
+  theme_bw()+
+  #geom_text_repel( data=biomass_ts%>%dplyr::filter(day==58,tot_biom!=0),aes(x=day,y=tot_biom,group=composition,label = composition), size = 4,max.overlaps = 20) +
+  facet_wrap(temperature~nutrients,scale="free_y")
+
+```
+
 ##Exploration completed time series
 
 ```{r}
 
-
-complete_aggr<-complete_ts%>%group_by(composition,nutrients,temperature,sample_ID)%>%summarise(
-  mean_biom=mean(biomass),
-  CV=sd(biomass)/mean(biomass),
-  sd=sd(biomass),
-  mean=mean(biomass),
+## discard all the rows that are part of time stretches where entire microcosms has (seemingly) gone extinct
+complete_aggr<-aggr_ts%>%dplyr::filter(is_after_first_zero_day==FALSE)%>%group_by(composition,nutrients,temperature,sample_ID)%>%summarise(
+  mean_biom=mean(tot_biomass),
+  CV=sd(tot_biomass)/mean(tot_biomass),
+  sd=sd(tot_biomass),
+  avg_w_sumslopes=mean(sum_w_slopes,na.rm = T)
 )
 
-
-complete_aggr<-complete_aggr%>%mutate(temperature=paste0(temperature," °C"),
-                                      nutrients=paste0(nutrients," g/L"))
 
 complete_aggr<-full_join(new_selection_mean,complete_aggr,by=join_by(composition,nutrients,temperature))%>%
   mutate(richness=as.factor(richness))
 
 complete_aggr<-complete_aggr%>%mutate(abs_sum_slope=abs(sum_slopes))
+
 
 #### effects fidtributions of 1/CV, divergence, dissimilarity
 
@@ -460,7 +696,7 @@ plot_CV_divergence_alt_comp<-ggplot(complete_aggr,aes(x=mean_divergence_alt,y=lo
 
 ### simple divergence
 
-plot_CV_simple_divergence<-ggplot(complete_aggr,aes(x=simple_divergence,y=1/CV))+
+plot_CV_simple_divergence<-ggplot(complete_aggr,aes(x=simple_divergence,y=1/CV,color=richness))+
   geom_point()+
   geom_smooth(method="lm")
 
@@ -472,9 +708,13 @@ plot_cor_simple_mean_div<-ggplot(complete_aggr,aes(x=mean_divergence,y=simple_di
 
 ####### response symmetry
 
-plot_CV_abs_sum_slope<-ggplot(complete_aggr,aes(x=log10(abs_sum_slope),y=1/CV))+
+plot_CV_abs_sum_slope<-ggplot(complete_aggr,aes(x=log10(abs_sum_slope),y=1/CV,color=richness))+
   geom_point()+
-  geom_smooth(method="lm")
+  geom_smooth(method="lm")+theme_bw()
+
+plot_CV_w_sum_slope<-ggplot(complete_aggr,aes(x=log10(avg_w_sumslopes),y=1/CV,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")+theme_bw()
 
 plot_cor_abs_sum_div<-ggplot(complete_aggr,aes(x=mean_divergence,y=log10(abs_sum_slope),color=richness))+
   geom_point()
@@ -687,7 +927,9 @@ T3<-data.frame(sample_T=T3[unique(complete_ts$day)+1],day=unique(complete_ts$day
 
 ## add temperature time series and perform interpolation and noramlization
 ## note that total time series goes from sampling day 1 (second day of the experiment) until the 59th day (here 58)-> 1:58
-df_S<-split(complete_ts,complete_ts$sample_ID)
+
+
+df_S<-split(async_df,async_df$sample_ID)
 df_S<-mclapply(df_S,function(df){
   if(unique(df$temperature)=="18-21"){
     dfT<-T1
@@ -697,16 +939,17 @@ df_S<-mclapply(df_S,function(df){
   }
   else{dfT<-T3}
   
-   interpolated <- lapply(unique(df$pred_nonoise),function(s){
+   interpolated <- lapply(unique(df$predict_spec),function(s){
      new_time <- seq(min(df$day), max(df$day), length.out = 26)
-     int_sampleT<-interp1(dplyr::filter(df,pred_nonoise==s)$day, dfT$sample_T, new_time, method = "cubic")
-     df_transform<-data.frame(int_biomass=interp1(dplyr::filter(df,pred_nonoise==s)$day, dplyr::filter(df,pred_nonoise==s)$biomass, new_time, method = "cubic"),
-                original_biomass=dplyr::filter(df,pred_nonoise==s)$biomass,int_sampleT=int_sampleT,sample_T=dfT$sample_T,day=new_time,pred_nonoise=rep(s,length(new_time)))
+     int_sampleT<-interp1(dplyr::filter(df,predict_spec==s)$day, dfT$sample_T, new_time, method = "cubic")
+     df_transform<-data.frame(int_biomass=interp1(dplyr::filter(df,predict_spec==s)$day, dplyr::filter(df,predict_spec==s)$biomass, new_time, method = "cubic"),
+                original_biomass=dplyr::filter(df,predict_spec==s)$biomass,int_sampleT=int_sampleT,sample_T=dfT$sample_T,day=new_time,predict_spec=rep(s,length(new_time)))
      
     df_transform<-df_transform%>%mutate(trans_biomass=original_biomass^1/4)
     df_transform<-df_transform%>%mutate(resid_biomass=as.vector(lm(data=df_transform,trans_biomass~new_time)$residuals))
     df_transform<-df_transform%>%mutate(norm_trans_biomass=(resid_biomass - mean(resid_biomass)) / sd(resid_biomass),
-                                        norm_sampleT=(int_sampleT - mean(int_sampleT)) / sd(int_sampleT))
+                                        norm_sampleT=(int_sampleT - mean(int_sampleT)) / sd(int_sampleT),rep_var=dplyr::filter(df,predict_spec==s)$rep_var,
+                                        sample_ID=dplyr::filter(df,predict_spec==s)$sample_ID)
     
    })
    df<-do.call("rbind",interpolated)
@@ -716,7 +959,9 @@ df_S<-mclapply(df_S,function(df){
    return(df)
 })
 
+df_S<-do.call("rbind",df_S)
 
+df_S<-split(df_S,df_S$rep_var)
 
 # to test us this
 test_df_S<-df_S[23]
@@ -880,25 +1125,25 @@ all_partial_richness<-ggplot(data=mean_int_species,aes(y=log10(mean_interaction)
 
 # mean_interaction_df<- interactions_df%>%group_by(Sample_ID,day,temperature,nutrients,composition)%>%reframe(mean_interaction=sum(coefficient_value)/((nchar(composition)^2) - nchar(composition)))
 
-mean_interaction_df<- interactions_df%>%group_by(Sample_ID,day,temperature,nutrients,composition)%>%reframe(mean_interaction=mean(abs(coefficient_value)),sum_interaction=sum(abs(coefficient_value)))
+mean_interaction_df<- interactions_df%>%group_by(Sample_ID,day,temperature,nutrients,composition)%>%reframe(mean_interaction=mean(coefficient_value),sum_interaction=sum(abs(coefficient_value)),mean_interaction_noabs=mean(coefficient_value))
 
 
 plot_mean_interactions<-ggplot(data=mean_interaction_df,aes(x=day,y=mean_interaction,color=composition))+
   geom_line()+
   facet_grid(temperature~nutrients,scale="free")
 
-overall_mean_interaction<-mean_interaction_df%>%group_by(Sample_ID,temperature,nutrients,composition)%>%reframe(mean_sum_interactions=mean(sum_interaction,na.rm=T),mean_interaction_strength=mean(mean_interaction,na.rm=T))
+overall_mean_interaction<-mean_interaction_df%>%group_by(Sample_ID,temperature,nutrients,composition)%>%reframe(mean_sum_interactions=mean(sum_interaction,na.rm=T),mean_interaction=mean(mean_interaction,na.rm=T))
 
 
 
 ## join interactions with main df (complete_aggr)
 names(overall_mean_interaction)[names(overall_mean_interaction)=="Sample_ID"]<-"sample_ID"
 
-int_aggr<-inner_join(dplyr::select(overall_mean_interaction,mean_interaction_strength,sample_ID,mean_sum_interactions),complete_aggr,join_by(sample_ID))
+int_aggr<-inner_join(dplyr::select(overall_mean_interaction,mean_interaction,sample_ID,mean_sum_interactions),complete_aggr,join_by(sample_ID))
 
 ## distributions
 
-plot_dist_interaction<-ggplot(data=int_aggr,aes(x=mean_interaction_strength))+
+plot_dist_interaction<-ggplot(data=int_aggr,aes(x=mean_interaction))+
   geom_histogram(bins=30)
 plot_dist_interaction_log<-ggplot(data=int_aggr,aes(x=log10(mean_interaction_strength)))+
   geom_histogram(bins=30)
@@ -969,7 +1214,7 @@ plot_abs_sum_slopes_int<-ggplot(int_aggr,aes(y=log10(mean_interaction_strength),
   geom_point()+
   geom_smooth(method="lm")
 
-plot_simple_divergence_int<-ggplot(int_aggr,aes(y=log10(mean_interaction_strength),x=simple_divergence))+
+plot_simple_divergence_int<-ggplot(int_aggr,aes(y=log10(mean_interaction),x=simple_divergence))+
   geom_point()+
   geom_smooth(method="lm")
 
@@ -1043,16 +1288,12 @@ plot_nut_no_int<-ggplot(data=no_int_aggr,aes(y=log10(1/CV),x=nutrients))+
 
 ```{r}
 
-complete_ts_micro_level<-complete_ts%>%group_by(sample_ID,day,temperature,nutrients,composition)%>%summarise(mean_biomass=mean(biomass))
+complete_ts_micro_level<-complete_ts%>%group_by(sample_ID,day,temperature,nutrients,composition)%>%summarise(sum_biomass=sum(biomass),mean_biomass=mean(biomass))
 complete_ts_micro_level<-complete_ts_micro_level%>%mutate(richness=nchar(composition)%>%as.factor())
 
-ts_level_richness
 
-plot_biomass<-ggplot(data=complete_ts_micro_level)+
-  geom_line(method="loess",se=F,aes(x=day,y=mean_biomass,group=sample_ID,color=richness),size=0.8,alpha=0.5)+
-  #geom_smooth(aes(x=day,y=mean_biomass,color=richness))+
-  theme_bw()+
-  facet_wrap(temperature~nutrients,scale="free_y")
+
+
 
 
 plot_biomass_incomplete<-ggplot(data=dd_ts_id)+
@@ -1196,192 +1437,248 @@ plot_int_tot_zeroes<-ggplot(data=extinction_df_int,aes(y=tot_zeroes,x=log10(inte
 ```
 
 
+## Asnychrony
+
+```{r}
+
+async_df<-complete_ts%>%mutate(rep_var=sub("_[^_]+$", "", sample_ID))
+
+
+async_Gross <- async_df %>% group_by(composition,sample_ID) %>%  
+  do(synchrony = synchrony(., "day", "pred_nonoise", 
+                              "biomass", metric = "Gross", replicate.var = "rep_var"))
+async_Gross<-mutate(async_Gross,synchrony=synchrony$synchrony)
+
+async_aggr<-full_join(async_Gross,complete_aggr,join_by(sample_ID,composition))
+
+plot_asynch_CV<-ggplot(data=async_aggr,aes(x=synchrony,y=1/CV,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")+theme_bw()
+
+plot_asynch_mean_div<-ggplot(data=async_aggr,aes(y=synchrony,x=log10(abs_sum_slope),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+#-> higher divergence leads to asynchrony in richness=2, resulting in a positive relationship between divergence and tmp stability for richness 2. The opposite happens for the higher richness levels
+
+#look at other divergences
+
+plot_asynch_simple_div<-ggplot(data=async_aggr,aes(y=synchrony,x=simple_divergence,color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+plot_asynch_sum_slopes<-ggplot(data=async_aggr,aes(y=synchrony,x=log10(abs_sum_slope),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+
+
+### interactions
+
+async_int<-full_join(async_Gross,int_aggr,join_by(sample_ID,composition))
+
+plot_asynch_int<-ggplot(data=async_int,aes(y=synchrony,x=log10(mean_interaction_strength),color=richness))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+
+#-> asynchrony goes down with interaction strength (slightly more pronounced with Loreau asynchrony)
+
+plot_asynch_int_b<-ggplot(data=async_int,aes(y=synchrony,x=log10(mean_sum_interactions)))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+#-> opposite for sum of interactions? (no trend for Loreau method)
+```
+
 
 ## Interactions combined microcosms
 
 ```{r}
+test_df_S<-df_S[23]
 
-library(multispatialCCM)
-
-
-
-
-df_S_unpacked <- map_dfr(names(df_S), function(df_name) {
-  clean_name <- sub("_[^_]*$", "", df_name)
-  df_S[[df_name]] %>%
-    mutate(treatment_ID = clean_name,
-           sample_ID=df_name) # Add the source name as a new variable
-})
-df_S_treatment<-split(df_S_unpacked,df_S_unpacked$treatment_ID)
-
-
-
-
-pairwise_ccm_df_list_repcom<- mclapply(df_S_treatment, function(df){
+rep_CCM<-mclapply(test_df_S,function(df){
   var_pairs = expand.grid(target=unique(df$predict_spec),interactor = append(unique(df$predict_spec),"norm_sampleT"))
   species<-unique(df$predict_spec)
   
- #create data frames where replicates are concatenated back-to-back into a single vector, with gaps between time series indicated by "NA".
-  
-dftemp<-lapply(species,function(sp){
-  dfs<-lapply(unique(df$sample_ID),function(sa){
-  dfa<-df%>%dplyr::filter(predict_spec==sp,sample_ID==sa)%>%dplyr::select(day,norm_trans_biomass,norm_sampleT)
-  dfa<-rbind(dfa,rep(NA,3))
-  names(dfa)[names(dfa)=="norm_trans_biomass"]<-sp
-  return(dfa)
+dftemp<-lapply(species,function(s){
+  dfs<-df%>%dplyr::filter(predict_spec==s)%>%dplyr::select(day,norm_trans_biomass,norm_sampleT,sample_ID)
+  names(dfs)[names(dfs)=="norm_trans_biomass"]<-s
+  dfs<-split(dfs,dfs$sample_ID)
+  dfs<-lapply(dfs,function(df){
+    dna<-rbind(df,rep(NA,ncol(df)))
+  return(dna)
   })
- dfs<-do.call("rbind",dfs)
- dfs%>%mutate(position=1:(nrow(dfs)))
+  dfs<-do.call("rbind",dfs)
+  dfs<-dfs%>%mutate(position=1:nrow(dfs))
+  dfs<-dfs%>%dplyr::select(-c(sample_ID))
+  return(dfs)
 })
-
 
 dftemp<-reduce(dftemp,full_join,by=c("position","day","norm_sampleT"))
-var_pairs
-########### get best embedding dimension
-# creates for each target-interactor pair a seperate best embedding; unlike what the package suggests which is to use each variable on it's self to find best embedding dimension
+dftemp<-dftemp[1:(nrow(dftemp)-1),]
 
-Best_E_df<-apply(var_pairs,1,function(c){
+#### find best E
+maxE_test<-round(sqrt(26)) 
+
+best_E_df <- lapply(species,function(t){
+  A<-dftemp%>%pull(t[1])
+  
   max1 <- c()
   max2 <- c()
-  
-  for(i in 2:12){
-    ccm_out<-SSR_pred_boot(B=dftemp%>%pull(c[1]),A=dftemp%>%pull(c[2]),E=i,predstep=1)
-    #max1[i-1] <- ccm_out[1,2]
+  for(i in 2:maxE_test){
+    ccm_out <- SSR_pred_boot(A=A,B=A,E=i)
+  # max1[i-1] <- ccm_out[1,2]
     max2[i-1] <- ccm_out$rho
-    
   }
-   # Check if max2 has valid values
-  if (length(max2) == 0 || all(is.na(max2))) {
-    print(paste("Empty max2 for target:", c[1], "and interactor:", c[2]))
-    return(data.frame(target = c[1], interactor = c[2], Best_E = NA,rho=NA))
+    
+  if(length(max2)==0||all(is.na(max2))){
+    return(data.frame(tar=t[1],Best_E=NA,rho=NA))
+  }else{return(data.frame(tar=t[1],
+                   Best_E = which.max(max2)+1,
+                   rho=max(max2)))}
+})
+best_E_df<-do.call("rbind",best_E_df)
+best_E_df<-best_E_df%>%dplyr::filter(!is.na(Best_E))
+
+var_pairs<-var_pairs%>%dplyr::filter(target%in%best_E_df$tar,
+                                     interactor%in%best_E_df$tar)
+
+### Pairwise CCM
+
+ccm_all<-apply(var_pairs,1,function(v){
+  best_E<-dplyr::filter(best_E_df,tar==v["target"])$Best_E
+  A<-dftemp%>%pull(v["interactor"])
+  B<-dftemp%>%pull(v["target"])
+  
+  ccm_out<-CCM_boot(A=A,B=B,E=best_E)
+  
+  ccm_out$target<-v["target"]
+  ccm_out$interactor<-v["interactor"]
+  rho_df<-data.frame(max_rho=max(ccm_out$rho))
+
+  ccm_out$rho_df<-rho_df
+  return(ccm_out)
+})
+
+### covergence testing
+
+causl<-apply(var_pairs,1,function(p){
+  target=p["target"]
+  interactor=p["interactor"]
+  
+  
+  selected_lists <- Filter(Negate(is.null), lapply(ccm_all, function(x) {
+  if (x$target == target & x$interactor == interactor ) {
+    return(x)
+  }}))
+    
+  p <- 1 - sum(selected_lists[[1]]$FULLinfo[1, ] < selected_lists[[1]]$FULLinfo[nrow(selected_lists[[1]]$FULLinfo), 
+    ], na.rm = T)/ncol(selected_lists[[1]]$FULLinfo)
+    
+  rho<-(0<selected_lists[[1]]$rho_df$max_rho)
+  ddf<-data.frame(pvalue=p,rho_larger_0=rho,target=target,interactor=interactor)
+
+### test of surrogates
+  
+  ## 1 create surrogate data
+     # remove NAs
+    dfnna<-dftemp%>%dplyr::filter(!is.na(day))
+    ts_int <- unlist(dfnna[,interactor])
+    
+    ts_tar <- unlist(dftemp%>%select(all_of(target)))
+    
+    # create surrogates of interactor ts
+    if(interactor!="norm_sampleT") {
+    surr_interactor = SurrogateData(ts_int, method = "seasonal", T_period = 8,
+                                    num_surr = 1000, alpha = 3)
   } else {
-    return(data.frame(target = c[1], interactor = c[2], Best_E = which.max(max2) + 1,rho=max(max2)))
+    surr_interactor = SurrogateData(ts_int, method = "random_shuffle",
+                                    num_surr = 1000, alpha = 3)      
   }
-})
+    
+    # add back NAs 
+    
+    na_row <- rep(NA, ncol(surr_interactor))
 
-  Best_E_df<-do.call("rbind",Best_E_df)
-  Best_E_df<-Best_E_df%>%dplyr::filter(!is.na(Best_E))
+# Split the matrix and insert NA rows
+mat_with_na <- rbind(
+  surr_interactor[1:26, ],  # First 26 rows
+  na_row,       # Insert NA row
+  surr_interactor[27:52, ], # Next 26 rows
+  na_row,       # Insert NA row
+  surr_interactor[53:nrow(surr_interactor), ] # Remaining rows
+)
+    
+    
+    interactor_data = as.data.frame(cbind( dftemp[,1],ts_tar, mat_with_na))
+    
+  names(interactor_data) = c("time", target, paste("T", as.character(seq(1, 1000)),	sep = ""))
   
-ccms<-apply(Best_E_df,1,function(r){
-  
-  ccm<-CCM_boot(A=dftemp%>%pull(r[2]),B=dftemp%>%pull(r[1]),E=as.numeric(r[3]),iterations=10)
-})
-  
-  ccms
-})
- 
-  
-  significances <- apply(Best_E_df,1,function(r){
-    ts <- unlist(dftemp%>%pull(r["interactor"]))
-    ts2<-ts[!is.na(ts)]
-  
-    surr_interactor = SurrogateData(ts2, method = "seasonal", T_period = 8,
-                                    num_surr = 100, alpha = 3)
+  rho_surr <- data.frame(interactor_rho = numeric(1000))
+  best_E<-dplyr::filter(best_E_df,tar==target)$Best_E
+
+  sapply(1:1000,function(i){
+    targetCol = paste("T", i, sep = "")
+    
+    
+    B_ts<-interactor_data[,targetCol]
+    A_ts<-interactor_data[,target]
+    
    
-    surr_interactor <- as.data.frame(surr_interactor)
 
-    # Create an empty row filled with NA, with the same number of columns as the matrix
-    na_row <- as.data.frame(matrix(t(rep(NA, ncol(surr_interactor)) ),nrow=1))
+    ccm_s = CCM_boot(A=A_ts,B=B_ts,E=best_E,iterations = 10)
     
-    # Add NA row after the 26th and 52nd rows
-    df_data_with_na <- rbind(
-      surr_interactor[1:26, ],   # First 26 rows
-      na_row,            # Add NA row after 26th
-      surr_interactor[27:52, ],  # Next 26 rows
-      na_row,            # Add NA row after 52nd
-      surr_interactor[53:78, ],
-      na_row                  # Remaining rows
-    )
-    
-  
-  rho_surr <- data.frame(interactor_rho = numeric(100))
-  
-  interactor_data = as.data.frame(cbind(dftemp%>%pull(r[1]),df_data_with_na))
-  names(interactor_data) = c( r[1], paste("T", as.character(seq(1, 100)),	sep = ""))
-  
-
-  
-  sapply(1:100,function(i){
-    targetCol = paste("T", i, sep = "") 
-    
-    ccm_out=CCM_boot(A=dftemp%>%pull(r[1]),B=interactor_data%>%pull(targetCol),E=as.numeric(r[3]))
-    
-    rho_surr$interactor_rho[i] <- ccm_out$rho
-      
-})
-  return(rho_surr)
-  #if(!is.na(r[4])){significance <- 1 - ecdf(rho_surr$interactor_rho)(as.numeric(r[4]))
-  #return(significance)}else{return(NA)}
-})
-  significances
-})
-
-
-mclapply(function(data, target, interactor){
-  max1 <- c()
-  max2 <- c()
-  for(i in 2:5){
-    ccm_out <- CCM(dataFrame = data, target = target, column = interactor,libSizes = c(21,21,20), Tp = -1, E = i, sample = 100)
-    # max1[i-1] <- ccm_out[1,2]
-    max2[i-1] <- ccm_out[1,3]
-  }
-  df <- data.frame(target=target,
-                   interactor=interactor,
-                   Best_E = which.max(max2)+1)
-  return(df)
-})
-
-
-  ############## best embedding dimension based on simplex 
-
-	Best_E_df <- apply(var_pairs,1, function(c){
-		best_E_fct(dftemp,c[1],c[2])
-	})
-	
-	Best_E_df <- do.call("rbind",Best_E_df)
-	Best_E_df$ID <- unique(df$ID)
-	
-  ############## produce prediction skill for every possible interactor-target pair at largest library size using best E from above
-	rhos <- apply(Best_E_df, 1, function(r){
-		ccm_out <- CCM(dataFrame = dftemp, target = r[1], column = r[2],
-									 libSizes = c(5,21,1), Tp = 0, E = as.numeric(r[3]), sample = 100)
-		rho <- ccm_out[16,3] ###### change to rho from largest library size (here 21-5)
-		if(rho<0) return(data.frame(rho=rho,comment="negative"))
-		else {return(data.frame(rho=rho,comment="positive"))}
-	})
-
-	Best_E_df <- cbind(Best_E_df,do.call("rbind",rhos))
-	
-  ############## get significance of prediction skill using surrogate time series
-    significances <- apply(Best_E_df,1,function(r){
-      pvalue<-CCM_significance(data=dftemp,target=r[1],interactor=r[2],libsize =21 ,surrogateMethod="seasonal",T_period=8,E=as.numeric(r[3]),rho=r[4])
-})
-  ############## get significance for convergence criteria 
-    convergence<- apply(Best_E_df,1,function(r){
-  pvalue<-CCM_convergence_test(data=dftemp, target=r[1],interactor=r[2], libsize=21, step=3, E=as.numeric(r[3]), lmin=NULL, lmax=NULL, maxlag=4)
+    rho_surr$interactor_rho[i] = max(unlist(ccm_s$rho))
   })
+    significance <- 1 - ecdf(rho_surr$interactor_rho)(unlist(selected_lists[[1]]$rho_df$max_rho))
+   return(significance)
+   #ddf<-cbind(ddf,sur_p=significance)
+})  
+  return(causl)
   
-	pairwise_ccm_df <- cbind(Best_E_df,significances,convergence)
-
-	
-significant_pairwise_ccm_df <- pairwise_ccm_df %>%
-	dplyr::filter(significances <= 0.05, rho >0, convergence<=0.05)
-
-significant_pairwise_ccm_df<-split(significant_pairwise_ccm_df,significant_pairwise_ccm_df$target)
-
-list_map<-lapply(significant_pairwise_ccm_df,function(x){
-
-  interactor<-x$interactor
-  lib=c(1,26)
-
-  SMap(dataFrame=dftemp,target=unique(x$target),columns=interactor,E=length(interactor),theta=5,lib=lib,pred=lib,embedded=T)
 })
+  
+#ccm_df<-do.call("rbind",causl)
+  
+  
 
-list_map
+  
+  
+  
+  
+  
+  ### prepare for s_map
+  
+  
+  significant_pairwise_ccm_df <- ccm_df %>%
+	dplyr::filter(rho_larger_0 ==T, pvalue<=0.05,sur_p<=0.05)
 
+  significant_pairwise_ccm_df<-split(significant_pairwise_ccm_df,significant_pairwise_ccm_df$target)
+  
+  
+  
+  ### smap
+  smap<-lapply(significant_pairwise_ccm_df,function(r){
+  
+  best_E<-dplyr::filter(best_E_df,target==unique(r$target))$Best_E
+  interactor<-r$interactor
+  lib=c("1 26","28 53", "55 80")
+  pred<-c(c("1 26","28 53", "55 80"))
+  
+
+   sss<-lapply(pred,function(p){
+
+      s<-SMap(dataFrame=dftemp,E=best_E,target=unique(r$target),columns=r$interactor,theta=5,lib=lib,pred=p,embedded=T)
+      return(s)
+    })
+     return(sss)
+   })
+        
+
+return(causl)
 }, mc.cores = detectCores()-2)
-
-
 
 ```
 
@@ -1409,6 +1706,76 @@ plot_mean_boxplot<-ggplot(data=ts_morph,aes(x=nutrients%>%as.factor(),y=mean_mea
 ```
 
 
+# Random slopes
+
+```{r}
+
+slopes<-rnorm(1000,mean=0,sd=0.1)
+
+mean_s<-mean(df_slopes$slope)
+sd_s<-sd(df_slopes$slope)
+
+r2_balance<-lapply(1:1000,function(c){
+  slopes<-rnorm(2,mean=mean_s,sd=sd_s)
+  balance<-abs(mean(slopes))%>%log10()
+  
+  balance<-data.frame(RD=balance,richness=2)
+  return(balance)
+})
+r2_balance<-do.call("rbind",r2_balance)
+
+r3_balance<-lapply(1:1000,function(c){
+  slopes<-rnorm(3,mean=mean_s,sd=sd_s)
+  balance<-abs(mean(slopes))%>%log10()
+  
+  balance<-data.frame(RD=balance,richness=3)
+  return(balance)
+})
+r3_balance<-do.call("rbind",r3_balance)
+
+r4_balance<-lapply(1:1000,function(c){
+  slopes<-rnorm(4,mean=mean_s,sd=sd_s)
+  balance<-abs(mean(slopes))%>%log10()
+  
+  balance<-data.frame(RD=balance,richness=4)
+  return(balance)
+})
+r4_balance<-do.call("rbind",r4_balance)
+
+r10_balance<-lapply(1:1000,function(c){
+  slopes<-rnorm(10,mean=mean_s,sd=sd_s)
+  balance<-abs(mean(slopes))%>%log10()
+  
+  balance<-data.frame(RD=balance,richness=10)
+  return(balance)
+})
+r10_balance<-do.call("rbind",r10_balance)
+
+
+
+balance<-rbind(r3_balance,r2_balance,r4_balance,r10_balance)
+balance<-balance%>%mutate(richness=as.factor(richness))
+
+dist_balance<-ggplot(data=balance,aes(x=RD,fill=richness))+
+  geom_density(aes(alpha=0.1))
+  
+
+means<-balance%>%group_by(richness)%>%summarize(mean_RD=mean(RD))
+
+
+##-> the higher the richness, the less balanced on average a random community ... its the opposite if one takes the abs(mean(slopes))
+
+#-> taking mean / weighted sum of slopes should lead to a diversity effect on temporal stability
+
+exp_means<-data.frame(exp_means=c(mean(dplyr::filter(complete_aggr,richness==2)$avg_w_sumslopes%>%log10()),
+mean(dplyr::filter(complete_aggr,richness==3)$avg_w_sumslopes%>%log10()),
+mean(dplyr::filter(complete_aggr,richness==4)$avg_w_sumslopes%>%log10())),richness=c(2,3,4)%>%as.factor())
+
+df_means<-full_join(means[1:3,],exp_means,join_by(richness))
+
+```
+
+
 
 # interesting plots
 
@@ -1420,9 +1787,8 @@ plot_biomass
 
 ## response diversity vs temporal stability
 
-plot_CV_divergence_comp
+plot_CV_divergence_comp+plot_asynch_CV+plot_asynch_mean_div
 
-# divergence does only consider the two most "extreme" species in terms of their performance change -> interaction between richness and  divergence
 
 #### effects of temperature; nutrient and richness
 
@@ -1450,7 +1816,7 @@ plot_nut_int
 
 plot_CV_simple_divergence
 
-plot_CV_abs_sum_slope
+plot_CV_abs_sum_slope+plot_CV_w_sum_slope
 
 
 ```
