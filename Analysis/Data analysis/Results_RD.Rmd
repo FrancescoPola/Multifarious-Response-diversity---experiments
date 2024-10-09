@@ -23,6 +23,7 @@ library("lme4")
 library(lmerTest)
 library(MuMIn)
 library(RColorBrewer)
+library(broom)
 #devtools::install_github("canankarakoc/r_package_EDMhelper/EDMhelper")
 
 ```
@@ -159,7 +160,8 @@ slope_ts<-slope_ts%>%mutate(w_slope=biom_contribution*slope,
 slope_ts<-slope_ts%>%group_by(sample_ID,temperature,nutrients,richness,composition,day,tot_biomass)%>%summarize(
   sum_w_slopes=abs(sum(w_slope)),
                    mean_abs_slope=mean(abs(slope)),
-  sum_abs_slope=sum(abs(slope)),symmetry=abs(sum(sign))/sum(abs(sign)))
+  sum_abs_slope=sum(abs(slope)),
+  abs_sum_slope=abs(sum(slope)))
 
 
 slope_ts<-slope_ts%>%mutate(richness=as.factor(richness))
@@ -209,19 +211,15 @@ plot_biomass
 ## discard all the rows that are part of time stretches where entire microcosms has (seemingly) gone extinct
 #%>%dplyr::filter(is_after_first_zero_day==FALSE)
 
-complete_aggr<-aggr_ts%>%group_by(composition,nutrients,temperature,sample_ID,symmetry)%>%summarise(
-  mean_biom=mean(tot_biomass),
-  CV=sd(tot_biomass)/mean(tot_biomass),
-  sd=sd(tot_biomass),
+complete_aggr<-aggr_ts%>%group_by(composition,nutrients,temperature,sample_ID)%>%reframe(
   avg_w_sumslopes=mean(sum_w_slopes,na.rm = T),
-  mean_abs_slope=mean(mean_abs_slope),
-  sum_abs_slope=mean(sum_abs_slope))
-
+  abs_sum_slope=mean(abs_sum_slope),
+  CV=sd(tot_biomass)/mean(tot_biomass))
 
 complete_aggr<-full_join(new_selection_mean,complete_aggr,by=join_by(composition,nutrients,temperature))%>%
   mutate(richness=as.factor(richness))
 
-complete_aggr<-complete_aggr%>%mutate(abs_sum_slope=abs(sum_slopes))
+
 
 complete_aggr<-complete_aggr%>%mutate(stability=1/CV)
 
@@ -353,7 +351,7 @@ anova(model_lm)
 
 ```{r}
 
-lm_full<-lm(data=complete_aggr%>%filter(nutrients!="0.01 g/L"), log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
+lm_full<-lm(data=complete_aggr, log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
 
 summary(lm_full)
 anova(lm_full)
@@ -718,94 +716,9 @@ summary(lm_async)
 anova(lm_async)
 ```
 
-### Interaction with RD
+## SEM and balance sim
 
 ```{r interaction RD async}
-async_aggr <- async_aggr %>% 
-  mutate(RD_group = cut(avg_w_sumslopes, breaks = quantile(async_aggr$avg_w_sumslopes),include.lowest=T,labels=c("low","medium low","medium high","high")))
-
-plot_int_sync_RD<-ggplot(data=async_aggr,aes(y=1/CV,x=synchrony_Loreau,color=RD_group))+
-  geom_point()+
-  geom_smooth(method="lm")
-
-plot_int_sync_RD
-
-# high response diversity seems to increase the positive effect of asynchrony on stability -> see model_3
-
-
-### simple divergence and asynchrony
-
-plot_div_asyn<-ggplot(data=async_aggr,aes(x=simple_divergence,y=synchrony_Gross,color=richness))+
-  geom_point()+
-  geom_smooth(method="lm")
-
-plot_div_CV<-ggplot(data=async_aggr,aes(x=simple_divergence,y=1/CV,color=richness))+
-  geom_point()+
-  geom_smooth(method="lm")
-
-## 1 simple divergence has only at richness 2 a positive effect on stability, because? richness 2 is the only richness level for which simple divergence is positively related to asynchrony
-## 2 for richness==2, divergence and balance converge (because of how divergence is calculated) -> at divergence=1, the sum has to be 0 the same trend does exist for higher richness, but the magnitudes become more and more important i.e there is more variability in the relationship between balance and divergence
-
-
-## 4 
-
-
-###look at symmetry
-
-
-plot_symmetry_async<-ggplot(async_aggr,aes(x=log10(abs_sum_slope),y=synchrony_Gross))+
-  geom_point()+
-  geom_smooth(method="lm")+
-  facet_wrap(~symmetry)
-
-## look at contribution of compensation
-
-comp_aggr<-async_aggr%>%mutate(rel_compensation=round(abs_sum_slope/sum_abs_slope,digits=3))
-
-comp_aggr <- comp_aggr %>% 
-  mutate(div_group = cut(rel_compensation, breaks = c(0,0.999,1),include.lowest=T))
-
-
-
-plt_compen<-ggplot(data=comp_aggr,aes(x=log10(abs_sum_slope),y=rel_compensation))+
-  geom_point()+
-  geom_smooth(method="lm")
-
-
-####
-
-plt_syn_abalnce<-ggplot(data=comp_aggr,aes(y=synchrony_Gross,x=log10(abs_sum_slope),color=temperature))+
-  geom_point()+geom_smooth(method="lm")
-
-lm_syn<-lm(data=async_aggr%>%filter(!is.na(synchrony_Gross),nutrients!="0.01 g/L"),synchrony_Gross~log10(abs_sum_slope)+temperature+nutrients+richness)
-
-data_dredge=async_aggr%>%filter(!is.na(synchrony_Gross),nutrients!="0.01 g/L")
-
-
-resid_df<-cbind(async_aggr,temp_resid=temp_resid)
-model_syn <- lmer(
-     formula = synchrony_Loreau ~ log10(avg_w_sumslopes)+richness+nutrients+temperature+(1 | composition),data = resid_df%>%filter(!is.na(synchrony_Loreau)))
-
-anova(model_syn,type=3)
-summary(model_syn)
-
-
-
-anova(model_syn,lm_syn)
-
-r.squaredGLMM(model_syn)
-
-
-
-
-### sampling error in nut 0.01
-
-df_acf<-complete_ts%>%group_by(sample_ID,nutrients,predict_spec)%>%summarize(autocor=acf(biomass,plot=F)$acf[2])
-
-plot_autocor<-ggplot(data=df_acf,aes(x=nutrients,y=autocor))+
-  geom_boxplot()+
-  geom_jitter()
-
 
 # simulate random slopes
 
@@ -1072,5 +985,23 @@ plot_main <- main_r_dd %>%
 
 ggsave("main_plot.pdf", plot = plot_main, width = 10, height = 6)
 
+
+
+### linear model summary table
+
+# Install and load the broom package if you haven't already
+
+library(broom)
+
+# Fit the model
+lm_full<-lm(data=complete_aggr, log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
+
+# Tidy up the summary
+tidy_model <- tidy(lm_full)
+
+# View the tidied model
+tidy_model
+
+write.csv(tidy_model, "full_linear_model_summary.csv")
 ```
 
