@@ -24,6 +24,7 @@ library(lmerTest)
 library(MuMIn)
 library(RColorBrewer)
 library(broom)
+library(relaimpo)
 #devtools::install_github("canankarakoc/r_package_EDMhelper/EDMhelper")
 
 ```
@@ -161,7 +162,8 @@ slope_ts<-slope_ts%>%group_by(sample_ID,temperature,nutrients,richness,compositi
   sum_w_slopes=abs(sum(w_slope)),
                    mean_abs_slope=mean(abs(slope)),
   sum_abs_slope=sum(abs(slope)),
-  abs_sum_slope=abs(sum(slope)))
+  abs_sum_slope=abs(sum(slope)),
+  symmetry=abs(sum(sign)))
 
 
 slope_ts<-slope_ts%>%mutate(richness=as.factor(richness))
@@ -214,6 +216,9 @@ plot_biomass
 complete_aggr<-aggr_ts%>%group_by(composition,nutrients,temperature,sample_ID)%>%reframe(
   avg_w_sumslopes=mean(sum_w_slopes,na.rm = T),
   abs_sum_slope=mean(abs_sum_slope),
+  magnitude=mean(mean_abs_slope),
+  symmetry=mean(symmetry),
+  sum_abs_slope=mean(sum_abs_slope),
   CV=sd(tot_biomass)/mean(tot_biomass))
 
 complete_aggr<-full_join(new_selection_mean,complete_aggr,by=join_by(composition,nutrients,temperature))%>%
@@ -275,6 +280,13 @@ plot_cor<-ggplot(data=complete_aggr,aes(x=log10(abs_sum_slope),y=avg_w_sumslopes
    geom_abline(slope = 1, intercept = 0, color = "black")
 
 plot_cor
+
+plot_cor_div_balance<-ggplot(data=complete_aggr,aes(x=log10(abs_sum_slope),y=simple_divergence))+
+  geom_point(aes(color=richness))
+
+df_no_0_div<-complete_aggr%>%filter(simple_divergence!=0)
+
+cor.test(df_no_0_div$simple_divergence,df_no_0_div$abs_sum_slope)
 ```
 
 
@@ -351,11 +363,21 @@ anova(model_lm)
 
 ```{r}
 
-lm_full<-lm(data=complete_aggr, log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
+lm_full<-lm(data=async_aggr, log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
 
-summary(lm_full)
-anova(lm_full)
+lm_full_div<-lm(data=complete_aggr, log10(stability)~simple_divergence+richness+temperature+nutrients)
+
+anova(lm_full,lm_full_div)
+
+
+summary(lm_full_div)
+anova(lm_fullsu)
 check_model(lm_full)
+
+
+# Calculate relative importance
+rel_imp <- calc.relimp(lm_full_div, type = "lmg", rela = TRUE)
+
 
 
 lm_full_w<-lm(data=complete_aggr, log10(stability)~log10(avg_w_sumslopes)+richness+temperature+nutrients)
@@ -658,18 +680,20 @@ plot_asynch_CV_L<-ggplot(data=async_aggr,aes(x=synchrony_Loreau,y=1/CV,color=nut
   geom_smooth(method="lm")+theme_bw()
 
 
+
+
 plot_asynch_CV_G+
 plot_asynch_CV_L
 ```
 
 
 ```{r async cor}
-plot_asynch_L_RD<-ggplot(data=async_aggr,aes(y=synchrony_Loreau,x=log10(avg_w_sumslopes),color=temperature))+
+plot_asynch_L_RD<-ggplot(data=async_aggr,aes(y=synchrony_Loreau,x=log10(avg_w_sumslopes),color=nutrients))+
   geom_point()+
   geom_smooth(method="lm")+theme_bw()
 cor.test(async_aggr$synchrony_Loreau,async_aggr$avg_w_sumslopes)
 
-plot_asynch_G_RD<-ggplot(data=async_aggr,aes(y=synchrony_Gross,x=log10(avg_w_sumslopes),color=temperature))+
+plot_asynch_G_RD<-ggplot(data=async_aggr,aes(y=synchrony_Gross,x=log10(abs_sum_slope),color=nutrients))+
   geom_point()+
   geom_smooth(method="lm")+theme_bw()
 
@@ -679,7 +703,7 @@ cor.test(async_aggr$synchrony_Loreau,async_aggr$avg_w_sumslopes)
 plot_asynch_L_RD+plot_asynch_G_RD
 # -> no relationship between synchrony and RD...
 
-model_asyn_balance<-lm(data=async_aggr%>%filter(!is.na(synchrony_Gross)),synchrony_Gross~abs_sum_slope)
+model_asyn_balance<-lm(data=async_aggr%>%filter(!is.na(synchrony_Gross)),synchrony_Gross~log10(abs_sum_slope))
 #summary(model_asyn_balance)
 
 ```
@@ -687,12 +711,10 @@ model_asyn_balance<-lm(data=async_aggr%>%filter(!is.na(synchrony_Gross)),synchro
 #### Asynchrony Gross with interaction
 
 ```{r model inc. asynchrony}
-model_3 <- lmer(
-     formula = I(1 / CV) ~ log10(avg_w_sumslopes)+synchrony_Gross + temperature+  nutrients +(1 | composition),data = async_aggr%>%dplyr::filter(!is.na(synchrony_Gross)))
+lm_async<-lm(data=async_aggr%>%filter(!is.na(synchrony_Gross),nutrients!="0.01 g/L"),log10(1+synchrony_Gross)~log10(abs_sum_slope))
 
-anova(model_3,type=3)
-summary(model_3)
-r.squaredGLMM(model_3)
+check_model(lm_async)
+summary(lm_async)
 ```
 
 #### Comparison to basic model
@@ -767,13 +789,18 @@ sem_aggr <- async_aggr %>%
   ungroup() %>%  # Ensure there is no grouping
   mutate(
     log_abs_sum_slope = log10(abs_sum_slope),
-    stability = 1 / CV,
+    stability = log10(1 / CV),
     richness = as.character(richness),
     temperature=as.character(temperature),
-    nutrients=as.character(nutrients)# Keep it as an ordered factor
+    nutrients=as.character(nutrients),
+    log_magnitude=log10(magnitude),
+    sqrt_symm=sqrt(symmetry),
+    log_sum_abs=log10(sum_abs_slope),
+    RD=abs_sum_slope/sum_abs_slope
+    #Keep it as an ordered factor
   )
 
-
+quantile(sem_aggr$log_abs_sum_slope)
 
 #correct balance for magnitude
 # the effect of magnitude goes down, the more divergence there is
@@ -783,7 +810,7 @@ library(lavaan)
 
 model <- '
   # Direct effects
-  stability ~ log_abs_sum_slope  +  nutrients +richness
+  stability ~ log_abs_sum_slope  
   
   # Indirect 
   log_abs_sum_slope~nutrients+richness
@@ -792,26 +819,27 @@ model <- '
 '
 
 # Define the SEM model using lavaan syntax
- model <- '
+ model2 <- '
   # Direct effects
-  stability ~ log_abs_sum_slope + synchrony_Gross+temperature
+  stability ~ log_abs_sum_slope
   
   # Indirect effect via synchrony
-  synchrony_Gross ~ log_abs_sum_slope+temperature
-  synchrony_Gross ~ richness
-  
-  log_abs_sum_slope~temperature
-  
+  synchrony_Gross ~ log_abs_sum_slope
 
 '
 
 # Fit the model
-fit <- sem(model, data = sem_aggr,group ="nutrients")
+fit <- sem(model2, data = sem_aggr%>%filter(nutrients!="0.01 g/L"))
+fit <- sem(model, data = sem_aggr%>%filter(nutrients!="0.01 g/L"))
 
 # Summarize the results
 summary(fit, standardized = TRUE, fit.measures = TRUE)
 
 modificationindices(fit)
+
+RD_int_plotRD_int_plot<-ggplot(data=async_aggr%>%filter(nutrients!="0.01 g/L"),aes(x=synchrony_Gross,y=log10(stability)))+
+  geom_point()+geom_smooth(method="lm")
+
 ```
 ## stat. averaging ?
 
@@ -965,7 +993,7 @@ names(weighted_balance_dd)[names(weighted_balance_dd)=="avg_w_sumslopes"]<-"bala
 main_r_dd<-rbind(balance_dd,weighted_balance_dd)
 
 plot_main <- main_r_dd %>%
-  ggplot(aes(x = log10(balance), y = 1/CV, color = type)) +
+  ggplot(aes(x = log10(balance), y = log10(1/CV), color = type)) +
   geom_point(aes(x = log10(balance), y = 1/CV)) +
   geom_smooth(method = "lm", aes(x = log10(balance), y = 1/CV)) +
   theme_classic() +
@@ -974,7 +1002,7 @@ plot_main <- main_r_dd %>%
     breaks = log10(c(0.0025,0.01, 0.04, 0.16, 0.64)),
     labels = c("0.0025","0.01", "0.04", "0.16", "0.64")
   ) +
-  ylab("Temporal stability [mean/s.d.]") +
+  ylab(expression("temporal stability: "~log[10]("mean/s.d.")))+
   xlab(expression(log[10]("Balance"))) +
   theme(axis.title.x = element_text(size = 16),
         axis.title.y = element_text(size = 16),
@@ -997,11 +1025,57 @@ library(broom)
 lm_full<-lm(data=complete_aggr, log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
 
 # Tidy up the summary
-tidy_model <- tidy(lm_full)
+tidy_model <- tidy(lm_full_w)
 
 # View the tidied model
 tidy_model
 
-write.csv(tidy_model, "full_linear_model_summary.csv")
+
+library(broom)
+library(writexl)
+
+
+
+# Step 3: Tidy the model output using broom
+model_summary <- tidy(lm_full)
+
+# Step 4: Add significance stars for p-values
+model_summary <- model_summary %>%
+  mutate(Significance = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01 ~ "**",
+    p.value < 0.05 ~ "*",
+    p.value < 0.1 ~ ".",
+    TRUE ~ ""
+  ))
+
+# Step 5: Rename columns for a nicer presentation
+names(model_summary) <- c("Term", "Estimate", "Std. Error", "t value", "p value", "Significance")
+
+# Step 6: Write the summary to an Excel file
+write_xlsx(model_summary, "full_model_summary.xlsx")
+
+
+# Step 3: Tidy the model output using broom
+model_summary <- tidy(lm_full_w)
+
+# Step 4: Add significance stars for p-values
+model_summary <- model_summary %>%
+  mutate(Significance = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01 ~ "**",
+    p.value < 0.05 ~ "*",
+    p.value < 0.1 ~ ".",
+    TRUE ~ ""
+  ))
+
+# Step 5: Rename columns for a nicer presentation
+names(model_summary) <- c("Term", "Estimate", "Std. Error", "t value", "p value", "Significance")
+
+# Step 6: Write the summary to an Excel file
+write_xlsx(model_summary, "full_model_w_summary.xlsx")
+
+
+
 ```
 
