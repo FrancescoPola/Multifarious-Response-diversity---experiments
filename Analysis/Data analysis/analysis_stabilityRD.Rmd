@@ -690,15 +690,30 @@ plot_CV_divergence_temp<-ggplot(complete_aggr,aes(x=mean_divergence,y=log10(1/CV
   geom_point()+
   geom_smooth(method="lm")
 
-plot_CV_divergence_alt_comp<-ggplot(complete_aggr,aes(x=mean_divergence_alt,y=log10(1/CV),color=richness))+
+plot_mean_divergence<-ggplot(complete_aggr,aes(x=mean_divergence_alt,y=1/CV))+
   geom_point()+
   geom_smooth(method="lm")
 
 ### simple divergence
 
-plot_CV_simple_divergence<-ggplot(complete_aggr,aes(x=simple_divergence,y=1/CV,color=richness))+
+plot_CV_simple_divergence<-ggplot(complete_aggr,aes(x=simple_divergence,y=1/CV))+
   geom_point()+
-  geom_smooth(method="lm")
+  geom_smooth(method="lm")+
+  theme_classic()+
+  xlab("recalculated divergence")+
+  theme(axis.title.y=element_text(size=16),
+        axis.title.x=element_text(size=16))
+plot_mean_divergence<-ggplot(complete_aggr,aes(x=mean_divergence,y=1/CV))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  theme_classic()+
+  xlab("mean divergence")+
+  theme(axis.title.y=element_text(size=16),
+        axis.title.x=element_text(size=16))
+
+plot_div_comparison<-plot_mean_divergence+plot_CV_simple_divergence
+
+ggsave("divergence.pdf", plot = plot_div_comparison, width = 10, height = 6)
 
 plot_cor_simple_mean_div<-ggplot(complete_aggr,aes(x=mean_divergence,y=simple_divergence,color=richness))+
   geom_point()+ geom_abline(slope = 1, intercept = 0, color = "black") 

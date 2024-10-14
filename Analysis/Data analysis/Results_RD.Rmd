@@ -25,6 +25,7 @@ library(MuMIn)
 library(RColorBrewer)
 library(broom)
 library(relaimpo)
+library(lavaanPlot)
 #devtools::install_github("canankarakoc/r_package_EDMhelper/EDMhelper")
 
 ```
@@ -363,7 +364,7 @@ anova(model_lm)
 
 ```{r}
 
-lm_full<-lm(data=async_aggr, log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
+lm_full<-lm(data=complete_aggr, log10(stability)~log10(abs_sum_slope)+richness+temperature+nutrients)
 
 lm_full_div<-lm(data=complete_aggr, log10(stability)~simple_divergence+richness+temperature+nutrients)
 
@@ -376,7 +377,7 @@ check_model(lm_full)
 
 
 # Calculate relative importance
-rel_imp <- calc.relimp(lm_full_div, type = "lmg", rela = TRUE)
+rel_imp <- calc.relimp(lm_full_w, type = "lmg", rela = TRUE)
 
 
 
@@ -671,7 +672,7 @@ async_aggr<-async_aggr%>%mutate(rep_var=sub("_[^_]+$", "", sample_ID))
 
 ### Plots
 ```{r async plots,echo=F}
-plot_asynch_CV_G<-ggplot(data=async_aggr,aes(x=synchrony_Gross,y=1/CV,color=nutrients))+
+plot_asynch_CV_G<-ggplot(data=async_aggr,aes(x=log10(synchrony_Gross+1),y=log10(1/CV),color=nutrients))+
   geom_point()+
   geom_smooth(method="lm")+theme_bw()
 
@@ -703,9 +704,11 @@ cor.test(async_aggr$synchrony_Loreau,async_aggr$avg_w_sumslopes)
 plot_asynch_L_RD+plot_asynch_G_RD
 # -> no relationship between synchrony and RD...
 
-model_asyn_balance<-lm(data=async_aggr%>%filter(!is.na(synchrony_Gross)),synchrony_Gross~log10(abs_sum_slope))
-#summary(model_asyn_balance)
+model_asyn_CV<-lm(data=async_aggr%>%dplyr::filter(!is.na(synchrony_Gross)),log10(stability)~log10(synchrony_Gross+1))
 
+
+summary(model_asyn_CV)
+anova(model_asyn_CV)
 ```
 ### Models
 #### Asynchrony Gross with interaction
@@ -788,19 +791,33 @@ plot_sim_div_bal/plot_div_balance
 sem_aggr <- async_aggr %>%
   ungroup() %>%  # Ensure there is no grouping
   mutate(
-    log_abs_sum_slope = log10(abs_sum_slope),
+    log_abs_sum_slope = log10(sum_abs_slope),
     stability = log10(1 / CV),
-    richness = as.character(richness),
-    temperature=as.character(temperature),
-    nutrients=as.character(nutrients),
+    richness = as.numeric(richness),
+    temperature=temperature,
     log_magnitude=log10(magnitude),
     sqrt_symm=sqrt(symmetry),
     log_sum_abs=log10(sum_abs_slope),
-    RD=abs_sum_slope/sum_abs_slope
+    RD=abs_sum_slope/sum_abs_slope,
+    log_syn_Gross=log10(1+synchrony_Gross),
+    symmetry_scaled=(symmetry/as.numeric(richness)),
+    asyn_Gross= (-synchrony_Gross),
+    log_asyn_Gross=log10((-synchrony_Gross)+1),
+    log_sum_abs_slope=log10(sum_abs_slope)
     #Keep it as an ordered factor
   )
 
 quantile(sem_aggr$log_abs_sum_slope)
+
+
+sem_aggr$nutrients[sem_aggr$nutrients=="0.01 g/L"]<-0.01
+sem_aggr$nutrients[sem_aggr$nutrients=="0.35 g/L"]<-0.35
+sem_aggr$nutrients[sem_aggr$nutrients=="0.75 g/L"]<-0.75
+
+sem_aggr$temperature[sem_aggr$temperature=="18-21 °C"]=1
+sem_aggr$temperature[sem_aggr$temperature=="22-25 °C"]=2
+sem_aggr$temperature[sem_aggr$temperature=="25-28 °C"]=3
+
 
 #correct balance for magnitude
 # the effect of magnitude goes down, the more divergence there is
@@ -808,59 +825,137 @@ quantile(sem_aggr$log_abs_sum_slope)
 # Load the lavaan package
 library(lavaan)
 
-model <- '
-  # Direct effects
-  stability ~ log_abs_sum_slope  
+
+model1A <- '
+  stability ~ asyn_Gross+temperature+nutrients+symmetry_scaled+log_sum_abs_slope
   
-  # Indirect 
-  log_abs_sum_slope~nutrients+richness
+  asyn_Gross ~ nutrients+richness+log_sum_abs_slope+symmetry_scaled
+
+
+'
+modl<-lm(data=sem_aggr,log_abs_sum_slope~symmetry_scaled+log_sum_abs_slope)
+
+
+model1B <- '
+  stability ~ asyn_Gross
+  +temperature
+  +nutrients
+  +log_abs_sum_slope+richness
+  
+  asyn_Gross ~ log_abs_sum_slope
+  +nutrients
+  +richness
 
   
 '
+
+
+
+model1C <- '
+  stability ~ asyn_Gross+temperature+c("c1","c2","c1")*richness+log_abs_sum_slope
+  
+  asyn_Gross ~ log_abs_sum_slope+c("d1","d2","d3")*richness
+  
+  c1==0
+  d2==0
+'
+
+
+
 
 # Define the SEM model using lavaan syntax
  model2 <- '
   # Direct effects
-  stability ~ log_abs_sum_slope
+  stability ~ asyn_Gross+log_magnitude
   
   # Indirect effect via synchrony
-  synchrony_Gross ~ log_abs_sum_slope
+  asyn_Gross ~ symmetry
 
+
+ 
 '
+ 
+
 
 # Fit the model
-fit <- sem(model2, data = sem_aggr%>%filter(nutrients!="0.01 g/L"))
-fit <- sem(model, data = sem_aggr%>%filter(nutrients!="0.01 g/L"))
+fit <- sem(model2, data = sem_aggr%>%dplyr::filter(!is.na(synchrony_Gross),nutrients!="0.01 g/L"))
 
+
+fit1A <- sem(model1A, estimator="MLM",meanstructure = TRUE,data = sem_aggr%>%dplyr::filter(!is.na(synchrony_Gross)))
+
+fit1B <- sem(model1B, estimator="MLM",meanstructure = TRUE,data = sem_aggr%>%dplyr::filter(!is.na(synchrony_Gross)))
+
+fit1C <- sem(model1C, estimator="MLM",meanstructure = TRUE,group="nutrients", data = sem_aggr%>%dplyr::filter(,!is.na(synchrony_Gross)))
+
+
+
+ ### model B slightly better
+AICc(fit1C,fit1B) ### model B and C almost the same
+
+anova(fit1B,fit1C)
 # Summarize the results
-summary(fit, standardized = TRUE, fit.measures = TRUE)
+summary(fit1B, standardized = TRUE, fit.measures = TRUE)
 
-modificationindices(fit)
+modificationindices(fit1A)
 
-RD_int_plotRD_int_plot<-ggplot(data=async_aggr%>%filter(nutrients!="0.01 g/L"),aes(x=synchrony_Gross,y=log10(stability)))+
-  geom_point()+geom_smooth(method="lm")
+
+lavaanPlot(model = fit1A, node_options = list(shape = "box", fontname = "Helvetica"), edge_options = list(color = "grey"), coefs = TRUE, sig = .05)
 
 ```
-## stat. averaging ?
+## interactions
 
 ```{r stat averaging}
 
+interactions_df <- read_csv("interactions_df.csv")
 
-stat_av_df<-complete_ts%>%group_by(sample_ID,temperature,nutrients,richness,predict_spec)%>%summarize(mean_biomass=mean(biomass),
-                                                                                                      var_biomass=var(biomass))
+int_aggr<-full_join(interactions_df,async_aggr,join_by(sample_ID))
+int_aggr$mean_int_strength[is.na(int_aggr$mean_int_strength)]=0
+int_aggr$mean_interaction[is.na(int_aggr$mean_interaction)]=0
 
-stat_avg<-ggplot(data=stat_av_df,aes(x=log10(mean_biomass),y=log10(var_biomass)))+
+
+M_int<-lm(data=int_aggr%>%dplyr::filter(mean_int_strength!=0),log10(stability)~log10(avg_w_sumslopes)+nutrients+temperature+richness+mean_interaction)
+anova(M_int,lm_full)
+
+
+
+plot_int_syn<-ggplot(data=int_aggr,aes(y=synchrony_Gross,x=mean_int_strength))+
   geom_point()+
-  geom_smooth(method="lm")+
-  facet_wrap(~richness)
+  geom_smooth(method="lm")
 
-stat_av_df<-stat_av_df%>%dplyr::filter(mean_biomass!=0)
 
-m_stat_avg<-lm(data=stat_av_df,log10(var_biomass)~log10(mean_biomass)*richness)
+M_int_syn<-lm(data=int_aggr%>%dplyr::filter(!is.na(synchrony_Gross)),synchrony_Gross~log10(abs_sum_slope)*richness+nutrients+temperature+mean_int_strength)
 
-summary(m_stat_avg)
 
-#-> slope ~1.6
+plot_richness_int<-ggplot(data=int_aggr,aes(x=mean_int_strength))+
+  geom_histogram()+
+  facet_wrap(~nutrients)
+
+### sem
+
+sem_aggr<-full_join(interactions_df,sem_aggr,join_by(sample_ID))
+sem_aggr$mean_int_strength[is.na(sem_aggr$mean_int_strength)]=0
+
+
+
+
+model_int <- '
+  stability ~ asyn_Gross
+  +temperature
+  +nutrients
+  +log_abs_sum_slope
+  
+  
+  asyn_Gross ~ log_abs_sum_slope
+  +nutrients
+  +richness
+  +mean_int_strength
+
+  
+'
+fit_int <- sem(model_int, estimator="MLM",meanstructure = TRUE,data = sem_aggr%>%dplyr::filter(!is.na(synchrony_Gross)))
+
+
+summary(fit_int, standardized = TRUE, fit.measures = TRUE)
 ```
 ## Check relationship of variables to mean biomass
 
