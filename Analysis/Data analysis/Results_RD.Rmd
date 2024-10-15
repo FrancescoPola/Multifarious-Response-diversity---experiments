@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 library("ggplot2")
-library(tidyverse)
+library("tidyverse")
 library("gridExtra")
 #library(rEDM)
 library("parallel")
@@ -20,12 +20,12 @@ library("patchwork")
 library("codyn")
 library("ggrepel")
 library("lme4")
-library(lmerTest)
-library(MuMIn)
-library(RColorBrewer)
-library(broom)
-library(relaimpo)
-library(lavaanPlot)
+library("lmerTest")
+library("MuMIn")
+library("RColorBrewer")
+library("broom")
+library("relaimpo")
+library("lavaanPlot")
 #devtools::install_github("canankarakoc/r_package_EDMhelper/EDMhelper")
 
 ```
@@ -372,7 +372,7 @@ anova(lm_full,lm_full_div)
 
 
 summary(lm_full_div)
-anova(lm_fullsu)
+anova(lm_full)
 check_model(lm_full)
 
 
@@ -629,7 +629,7 @@ anova(model_mix_random_tn)
 
 
 ```{r}
-lm_comp_balance<-lm(data=complete_aggr%>%filter(nutrients=="0.01 g/L",temperature=="18-21 °C"),log10(abs_sum_slope)~composition)
+lm_comp_balance<-lm(data=complete_aggr%>%dplyr::filter(nutrients=="0.01 g/L",temperature=="18-21 °C"),log10(abs_sum_slope)~composition)
 
 
 check_model(lm_comp_balance)
@@ -714,7 +714,7 @@ anova(model_asyn_CV)
 #### Asynchrony Gross with interaction
 
 ```{r model inc. asynchrony}
-lm_async<-lm(data=async_aggr%>%filter(!is.na(synchrony_Gross),nutrients!="0.01 g/L"),log10(1+synchrony_Gross)~log10(abs_sum_slope))
+lm_async<-lm(data=async_aggr%>%dplyr::filter(!is.na(synchrony_Gross),nutrients!="0.01 g/L"),log10(1+synchrony_Gross)~log10(abs_sum_slope))
 
 check_model(lm_async)
 summary(lm_async)
@@ -791,7 +791,7 @@ plot_sim_div_bal/plot_div_balance
 sem_aggr <- async_aggr %>%
   ungroup() %>%  # Ensure there is no grouping
   mutate(
-    log_abs_sum_slope = log10(sum_abs_slope),
+    log_abs_sum_slope = log10(abs_sum_slope),
     stability = log10(1 / CV),
     richness = as.numeric(richness),
     temperature=temperature,
@@ -840,13 +840,12 @@ model1B <- '
   stability ~ asyn_Gross
   +temperature
   +nutrients
-  +log_abs_sum_slope+richness
+  +log_abs_sum_slope+
+  richness
   
   asyn_Gross ~ log_abs_sum_slope
   +nutrients
   +richness
-
-  
 '
 
 
@@ -906,56 +905,78 @@ lavaanPlot(model = fit1A, node_options = list(shape = "box", fontname = "Helveti
 
 ```{r stat averaging}
 
-interactions_df <- read_csv("interactions_df.csv")
+interactions_df <- read_csv("interactions_df_w_T.csv")
 
 int_aggr<-full_join(interactions_df,async_aggr,join_by(sample_ID))
 int_aggr$mean_int_strength[is.na(int_aggr$mean_int_strength)]=0
 int_aggr$mean_interaction[is.na(int_aggr$mean_interaction)]=0
+int_aggr$sum_int_strength[is.na(int_aggr$sum_int_strength)]=0
 
-
-M_int<-lm(data=int_aggr%>%dplyr::filter(mean_int_strength!=0),log10(stability)~log10(avg_w_sumslopes)+nutrients+temperature+richness+mean_interaction)
+M_int<-lm(data=int_aggr,log10(stability)~log10(abs_sum_slope)+nutrients+temperature+richness+mean_int_strength)
 anova(M_int,lm_full)
 
 
 
-plot_int_syn<-ggplot(data=int_aggr,aes(y=synchrony_Gross,x=mean_int_strength))+
+plot_int_syn<-ggplot(data=int_aggr,aes(y=synchrony_Gross,x=mean_int_strength,color=log10(abs_sum_slope)))+
   geom_point()+
   geom_smooth(method="lm")
 
 
-M_int_syn<-lm(data=int_aggr%>%dplyr::filter(!is.na(synchrony_Gross)),synchrony_Gross~log10(abs_sum_slope)*richness+nutrients+temperature+mean_int_strength)
 
 
-plot_richness_int<-ggplot(data=int_aggr,aes(x=mean_int_strength))+
-  geom_histogram()+
+
+### above rep level
+rep_aggr<-int_aggr%>%group_by(rep_var.y,richness,temperature,nutrients)%>% dplyr::reframe(log_mean_fun_balance=log10(mean(abs_sum_slope)),
+                                                                                     mean_syn_Gross=mean(synchrony_Gross,na.rm=T),
+                                                                                     mean_int_rep_strength=mean(mean_int_strength),
+                                                                                     log_mean_stab=log10(mean(1/CV)))
+                                                                              
+
+M_int<-lm(data=rep_aggr,log_mean_stab~log_mean_fun_balance+nutrients+temperature+richness+mean_int_rep_strength)
+anova(M_int,lm_full)
+
+
+M_int_syn<-lm(data=rep_aggr,mean_syn_Gross~log_mean_fun_balance+richness+nutrients+temperature+mean_int_rep_strength)
+
+
+plot_richness_int<-ggplot(data=rep_aggr,aes(x=mean_int_rep_strength))+
+  geom_histogram(bins=10)+
+  facet_wrap(~nutrients)
+plot_int_syn<-ggplot(data=rep_aggr,aes(y=mean_syn_Gross,x=mean_int_rep_strength))+
+  geom_point()+
+  geom_smooth(method="lm")+
   facet_wrap(~nutrients)
 
 ### sem
 
-sem_aggr<-full_join(interactions_df,sem_aggr,join_by(sample_ID))
-sem_aggr$mean_int_strength[is.na(sem_aggr$mean_int_strength)]=0
+rep_aggr<-rep_aggr%>%mutate(richness=as.numeric(richness))
 
 
 
 
 model_int <- '
-  stability ~ asyn_Gross
+  log_mean_stab ~ mean_syn_Gross
   +temperature
   +nutrients
-  +log_abs_sum_slope
+  +log_mean_fun_balance
   
   
-  asyn_Gross ~ log_abs_sum_slope
+  mean_syn_Gross ~ log_mean_fun_balance
   +nutrients
   +richness
-  +mean_int_strength
+  +mean_int_rep_strength
 
   
 '
-fit_int <- sem(model_int, estimator="MLM",meanstructure = TRUE,data = sem_aggr%>%dplyr::filter(!is.na(synchrony_Gross)))
+fit_int <- sem(model_int, estimator="MLM",meanstructure = TRUE,data = rep_aggr)
 
 
 summary(fit_int, standardized = TRUE, fit.measures = TRUE)
+
+
+
+##### load interactions with T
+
 ```
 ## Check relationship of variables to mean biomass
 
