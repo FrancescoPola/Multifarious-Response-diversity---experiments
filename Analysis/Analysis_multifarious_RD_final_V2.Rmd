@@ -1440,12 +1440,12 @@ legend<-fig_plot+
 
 library(grid)
 library(gridExtra) 
-
+color_sp<-brewer.pal(5, "Dark2")
 s2d_plots <- list()
 
 for (i in seq_along(new_nested_gams$gams)) {
  species_name <- new_nested_gams$species[i]
- df<-filter(rates,species==species_name)
+ df<-dplyr::filter(rates,species==species_name)
  col<-color_sp[i]
  
 surface_2d<-ggplot(data=df,aes(x=temperature,y=nutrients,fill=predicted))+
