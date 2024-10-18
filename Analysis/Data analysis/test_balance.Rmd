@@ -1,0 +1,114 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-10-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r cars}
+
+
+
+response<-function(a,b,c,d,e,f,temp,nut){
+  p1=a*(temp-b)^2+c
+  p2=d*(nut-e)^2+f
+  p=p1+p2+((p1*p2))
+  return(p)
+}
+
+set.seed(123)
+performances<-lapply(1:4,function(species){
+  
+  a=rnorm(1,mean=-5,sd=1)
+  b=rnorm(1,mean=0.5,sd=0.3)
+  c=rnorm(1,mean=1,sd=0.3)
+  
+  d=rnorm(1,mean=-5,sd=1)
+  e=rnorm(1,mean=0.5,sd=0.3)
+  f=rnorm(1,mean=1,sd=0.3)
+  
+  env_df<-as.data.frame(expand.grid(temp=seq(0.2,1,by=0.2),nut=seq(0.2,1,by=0.2)))
+  env_df<-env_df%>%mutate(perf=response(a,b,c,d,e,f,temp=temp,nut=nut))
+  
+  env_df=env_df%>%mutate(species=paste0("S",species))
+  return(env_df)
+})
+performances<-do.call("rbind",performances)
+
+
+
+
+new_data <- expand_grid(temp = seq(0.2,1,by=0.01),
+                        nut = seq(0.2,1,by=0.01))
+
+nested_gams <- performances %>% 
+  nest(cols =-species) %>% 
+  mutate(
+    gams = map(cols, ~ gam(perf ~ te(temp, nut, k = c(5, 5)),
+                           data = .x,
+                           method = "REML")),
+    predicted = map(gams, ~ predict(.x, newdata = new_data))
+  )
+
+
+predicted <- nested_gams %>% unnest(predicted)
+rates <- cbind(new_data, predicted[, c(1,4)])
+rates <- rates %>%
+  relocate(species, temp, nut, predicted)
+
+
+```
+
+```{r pressure, echo=FALSE}
+
+
+surface_plots <- list()
+
+# Loop through each species and draw GAM surface
+for (i in seq_along(nested_gams$gams)) {
+  species_name <- nested_gams$species[i]
+  gam_model <- nested_gams$gams[[i]]
+  
+  # Create a new plot for each species
+  plot <- ggplot(rates %>% dplyr::filter(species == species_name),
+                 aes(x = temp, y = nut, z = predicted)) +
+    geom_tile(aes(fill = predicted), color = "white") +
+    #geom_contour(color = "black", linetype = "solid", breaks = seq(-1, 1, by = 0.1), n = 10) +  
+    scale_fill_viridis_c() +
+    labs(title = paste("GAM Surface for", species_name),
+         fill = "Predicted Growth Rate") +
+    theme_bw() +
+    scale_x_continuous(breaks = c(0.2, 0.4, 0.6, 0.8, 1))
+  
+  # Save the plot in the list
+  surface_plots[[species_name]] <- plot
+  
+}
+
+surface_S1 <- surface_plots[["S1"]]
+surface_S2 <- surface_plots[["S2"]]
+surface_S3 <- surface_plots[["S3"]]
+surface_S4 <- surface_plots[["S4"]]
+
+surface_S1+surface_S2+surface_S3+surface_S4
+
+```
+
+```{r}
+env_data=data.frame(temp=seq(0.2,0.4,by=0.01),
+                    nut=seq(0.2,0.4,by=0.01),
+                    )
+
+  E1_var <- "temp"
+  E2_var <- "nut"
+  species_names <- c("S1","S2","S3","S4")
+  result <- get_RD_ours(species_names, nested_gams, E1_var, E2_var)
+  return(result)
+
+```
+
